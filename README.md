@@ -14,6 +14,62 @@ generiert, sofern du sie nicht selbst vorgibst. Manuell bleiben nur die
 **DNS-Einträge (Schritt 1)** und ein paar Minuten Warten, bis der Node
 synchronisiert ist -- der Rest läuft in einem Durchlauf durch.
 
+**Alle Zugangsdaten landen gesammelt in einer Datei auf dem Server:**
+`$STACK_DIR/ZUGANGSDATEN.txt` (Standard: `/opt/elektron-net-stack/ZUGANGSDATEN.txt`),
+automatisch mit `chmod 600` versehen. Enthält RPC-/DB-/Wallet-Passwörter,
+JWT_SECRET, Faucet-Admin-Login, Pool-/Faucet-Wallet-Adressen, Domains/IPs
+und eine Befehlsreferenz -- wird bei jedem (Re-)Lauf des Skripts neu
+geschrieben, du musst also nichts bei der einmaligen Terminal-Ausgabe
+abschreiben.
+
+**Beide Wallets (Pool und Faucet) werden verschlüsselt.** Die
+Pool-Wallet-Passphrase (`WALLET_PASSPHRASE` in `elektron-net-ppool/.env`)
+wird -- genau wie die Faucet-Passphrase -- automatisch generiert, sofern
+nicht selbst vorgegeben; `ppool` entsperrt die Wallet damit automatisch nur
+für `WALLET_UNLOCK_SECONDS` bei jeder Auszahlung und sperrt sie danach
+sofort wieder. Ohne das schlägt jede echte Auszahlung mit RPC-Fehler `-13`
+fehl, sobald `PAYOUT_DRY_RUN=false` gesetzt wird -- das war vorher eine
+Lücke in diesem Skript (die Pool-Wallet blieb unverschlüsselt), jetzt
+konsistent mit der Faucet-Wallet gelöst.
+
+Für ein **wirklich vollständiges Backup** legt das Skript zusätzlich an
+(einmalig, beim ersten Anlegen der jeweiligen Wallet) -- jede Wallet bleibt
+dabei bewusst ihre eigene, separat schützbare Datei statt alles in einer
+einzigen riesigen Datei zu bündeln:
+
+- `$STACK_DIR/data/elektron-net/pool-wallet-privkeys-backup.txt` und
+  `.../faucet-wallet-privkeys-backup.txt` -- vollständiger Export der
+  **privaten Schlüssel** von Pool- und Faucet-Wallet (`dumpwallet`, mit
+  Fallback auf `listdescriptors true`, je nachdem was die Wallet
+  unterstützt). Die Passphrase allein reicht im Katastrophenfall nicht --
+  sie entsperrt nur eine bereits vorhandene Wallet-Datei; dieser Export ist
+  die eigentliche Wiederherstellungsgrundlage.
+- Alles, was du selbst in `$STACK_DIR/external-wallets/` als eigene Datei
+  ablegst (z. B. eine offline mit einem eigenen Skript wie
+  `generate_address.py` erzeugte Prepaid-Wallet mit Private Key/WIF) --
+  dorthin bekommst du sie z. B. über `nano` + die Paste-Funktion der
+  Hetzner-Console (siehe "Dateien auf den Server bringen") oder per
+  SCP/WinSCP. Das Skript setzt automatisch `chmod 600` auf jede Datei dort.
+
+Noch ein Ort, der nicht von diesem Skript verwaltet wird, aber genauso
+sensibel ist: die Faucet-App generiert beim allerersten Start selbst einen
+Verschlüsselungs-Key ("Secrets at rest", `FAUCET_APP_KEY`) und schreibt ihn
+direkt nach `$STACK_DIR/data/faucet-config/config.php` -- steht in keiner
+`.env`, wird aber genauso mitgesichert, wenn du `data/` in dein Backup
+einschließt.
+
+`ZUGANGSDATEN.txt` selbst dupliziert diese Wallet-Dateien **nicht** --
+es listet nur Dateiname und Pfad als Verweis auf, damit jedes
+Wallet-Geheimnis genau eine Stelle hat statt mehrfach im Klartext
+herumzuliegen. RPC-/DB-/JWT-/Faucet-Admin-Passwörter stehen dagegen direkt
+in `ZUGANGSDATEN.txt`, da es dafür keine separate Wallet-Datei gibt.
+
+Trotzdem bleibt `ZUGANGSDATEN.txt` die zentrale, sensible Übersichtsdatei
+im Stack. Einmalig offline sichern (WinSCP/scp) -- am besten zusammen mit
+den referenzierten Wallet-Dateien -- und danach nur unter Verschluss auf
+dem Server liegen lassen, nicht per
+Klartext-Mail verschicken oder irgendwo hochladen.
+
 Bring das Skript (und optional deine ausgefüllte Config-Datei, siehe unten)
 auf den Server -- wie genau, hängt von deinem Zugang ab, siehe
 ["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
@@ -526,3 +582,13 @@ Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
   einschränken (`chmod 600`).
 - `node1.elektron-net.org` hat absichtlich keinen Caddy-Block — das ist der
   reine P2P-Seed, kein Webdienst.
+- Nutzt du `install-elektron-stack.sh`, liegt zusätzlich eine gebündelte
+  Übersicht aller Zugangsdaten in `$STACK_DIR/ZUGANGSDATEN.txt` (`chmod 600`,
+  wird bei jedem Lauf aktualisiert), inklusive der vollständigen
+  Private-Key-Exports von Pool-/Faucet-Wallet
+  (`data/elektron-net/*-wallet-privkeys-backup.txt`) und allem, was in
+  `external-wallets/` liegt — einmalig offline sichern (siehe
+  ["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
+  für WinSCP/scp), dann auf dem Server unter Verschluss lassen. Das ist die
+  brisanteste Datei im Stack — Zugriff darauf = Kontrolle über alle
+  Guthaben.

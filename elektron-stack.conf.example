@@ -38,6 +38,11 @@ FIREWALL_AUTO_CONFIGURE=true
 
 # --- Pool (elektron-net-ppool) ---
 POOL_WALLET_NAME=pool
+# leer lassen = automatisch generieren. Verschlüsselt die Pool-Wallet --
+# ohne das schlägt jede echte Auszahlung fehl, sobald PAYOUT_DRY_RUN=false
+# gesetzt wird:
+POOL_WALLET_PASSPHRASE=
+WALLET_UNLOCK_SECONDS=60
 POOL_IDENTIFIER=Elektron-PPLNS-Pool
 POOL_FEE_PERCENT=1.0
 PPLNS_WINDOW_MINUTES=90
