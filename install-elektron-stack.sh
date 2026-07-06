@@ -3,19 +3,43 @@
 # Elektron Net -- one-shot install script (node + ppool + ppool-ui + faucet + Caddy)
 #
 # Usage:
-#   1. Edit the CONFIG block below.
-#   2. Copy this file onto the Hetzner server (Hetzner console / scp) as
-#      install-elektron-stack.sh
-#   3. chmod +x install-elektron-stack.sh
-#   4. ./install-elektron-stack.sh
+#   1. Copy this file (and, if you have one, elektron-stack.conf) onto the
+#      Hetzner server (Hetzner console / scp).
+#   2. chmod +x install-elektron-stack.sh
+#   3. ./install-elektron-stack.sh
+#
+# Three ways to supply the server-specific settings (domains, IPs, GitHub
+# user, hCaptcha keys, ...) -- pick whichever is easiest, or mix them:
+#
+#   a) Interactive: just run the script from a terminal. It prompts for
+#      every setting, showing the built-in default in brackets -- press
+#      Enter to keep it. This is what happens by default when stdin is a
+#      terminal.
+#   b) Config file upload: copy elektron-stack.conf.example to
+#      elektron-stack.conf, fill in your values (locally, or with an
+#      editor directly on the server), place it next to this script (or
+#      pass --config /path/to/file). Anything left blank there falls back
+#      to the built-in default / an interactive prompt.
+#   c) Fully unattended: combine (b) with --yes to skip every prompt, e.g.
+#      for scripted/CI installs.
+#
+# All secrets (JWT_SECRET, DB passwords, wallet passphrase, faucet admin
+# password, RPC password) are auto-generated when left blank -- you never
+# have to invent or type those yourself.
 #
 # Safe to re-run: existing clones/wallets are detected and skipped instead
 # of being recreated or overwritten.
 
 set -euo pipefail
 
+log()  { printf '\n\033[1;32m==>\033[0m %s\n' "$1"; }
+warn() { printf '\n\033[1;33m!!\033[0m %s\n' "$1"; }
+die()  { printf '\n\033[1;31mERROR:\033[0m %s\n' "$1"; exit 1; }
+
 # ============================================================================
-# CONFIG -- edit everything in this block, then run the script
+# CONFIG DEFAULTS -- overridden by elektron-stack.conf (see --config below)
+# and/or the interactive prompts further down. Only edit these directly if
+# you'd rather not use a config file or prompts at all.
 # ============================================================================
 
 # --- General ---
@@ -77,29 +101,202 @@ FAUCET_PER_ADDR_COOLDOWN_H="24"
 FAUCET_PER_IP_COOLDOWN_H="1"
 FAUCET_DEFAULT_LANG="de"
 
+# Every variable a config file / prompt round is allowed to touch -- keep in
+# sync with the block above. Doubles as the whitelist for config-file keys
+# (so an uploaded file can only ever set plain values, never run code).
+CONFIG_VARS="STACK_DIR GITHUB_USER SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
+FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE POOL_WALLET_NAME
+POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
+PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
+API_PORT JWT_SECRET FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
+FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN_PASS
+FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
+FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
+FAUCET_DEFAULT_LANG"
+
+# ============================================================================
+# CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
+# ============================================================================
+CONFIG_FILE=""
+ASSUME_YES=false
+
+usage() {
+  cat <<'USAGE_EOF'
+Usage: install-elektron-stack.sh [--config FILE] [--yes] [--help]
+
+  --config FILE   Load settings from FILE (KEY=VALUE per line, see
+                  elektron-stack.conf.example). Values found there override
+                  the built-in defaults; anything still unset afterwards is
+                  asked interactively unless --yes is given.
+  --yes, -y       Never prompt -- use defaults / config-file values as-is.
+                  Use this for unattended/CI runs.
+  --help, -h      Show this help text and exit.
+
+If no --config is given, a file named elektron-stack.conf next to this
+script is used automatically if present.
+USAGE_EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --config) CONFIG_FILE="${2:-}"; shift 2 ;;
+    --config=*) CONFIG_FILE="${1#*=}"; shift ;;
+    -y|--yes) ASSUME_YES=true; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) die "Unbekannte Option: $1 (siehe --help)" ;;
+  esac
+done
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ -z "$CONFIG_FILE" ] && [ -f "${SCRIPT_DIR}/elektron-stack.conf" ]; then
+  CONFIG_FILE="${SCRIPT_DIR}/elektron-stack.conf"
+  log "Gefundene Config-Datei wird automatisch verwendet: ${CONFIG_FILE}"
+fi
+
+is_config_var() {
+  local name="$1" v
+  for v in $CONFIG_VARS; do [ "$v" = "$name" ] && return 0; done
+  return 1
+}
+
+# Deliberately simple KEY=VALUE parser (NOT `source`) so an uploaded config
+# file can only ever set plain values from the whitelist above -- it can
+# never execute shell code, even if it came from somewhere untrusted.
+if [ -n "$CONFIG_FILE" ]; then
+  [ -f "$CONFIG_FILE" ] || die "Config-Datei nicht gefunden: $CONFIG_FILE"
+  log "Lade Konfiguration aus ${CONFIG_FILE} ..."
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+    [ -z "$line" ] && continue
+    case "$line" in
+      *=*) ;;
+      *) warn "Zeile ohne '=' in ${CONFIG_FILE} ignoriert: $line"; continue ;;
+    esac
+    key="$(printf '%s' "${line%%=*}" | sed -e 's/[[:space:]]*$//')"
+    val="$(printf '%s' "${line#*=}" | sed -e 's/^[[:space:]]*//')"
+    val="$(printf '%s' "$val" | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/")"
+    if is_config_var "$key"; then
+      printf -v "$key" '%s' "$val"
+    else
+      warn "Unbekannter Schlüssel in ${CONFIG_FILE} ignoriert: $key"
+    fi
+  done < "$CONFIG_FILE"
+fi
+
+# ============================================================================
+# Interactive prompts -- only for the handful of settings that need a human
+# decision (domains, IPs, GitHub user, optional hCaptcha/Let's Encrypt
+# mail). All secrets keep auto-generating silently if left blank, see below.
+# ============================================================================
+ask() {
+  local var_name="$1" prompt_text="$2" current input
+  current="${!var_name}"
+  read -rp "$prompt_text [${current:-leer}]: " input
+  if [ -n "$input" ]; then
+    printf -v "$var_name" '%s' "$input"
+  fi
+}
+
+if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
+  log "Interaktive Konfiguration -- Enter übernimmt den Default-/Config-Wert. Mit --yes überspringen."
+  ask GITHUB_USER   "GitHub-Benutzername (github.com/<user>/elektron-net...)"
+  ask SERVER_IP     "Öffentliche IPv4-Adresse dieses Servers"
+  ask SERVER_IPV6   "Öffentliche IPv6-Adresse (wird unten zusätzlich automatisch erkannt)"
+  ask NODE_DOMAIN   "Domain für den P2P-Seed-Node"
+  ask POOL_DOMAIN   "Domain für das Pool-Dashboard"
+  ask FAUCET_DOMAIN "Domain für den Faucet"
+  ask CADDY_EMAIL   "E-Mail für Let's Encrypt (optional, Enter zum Überspringen)"
+  ask FAUCET_HCAPTCHA_SITE   "hCaptcha Site-Key von hcaptcha.com (optional, aber empfohlen)"
+  ask FAUCET_HCAPTCHA_SECRET "hCaptcha Secret-Key (optional)"
+  log "Alle Passwörter/Secrets (JWT_SECRET, DB-Passwörter, Wallet-Passphrase, RPC-Passwort,"
+  log "Faucet-Admin-Passwort) werden gleich automatisch generiert, sofern nicht per Config-Datei vorgegeben."
+else
+  log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
+fi
+
 # ============================================================================
 # END CONFIG -- nothing below this line needs editing for a normal install
 # ============================================================================
 
-log()  { printf '\n\033[1;32m==>\033[0m %s\n' "$1"; }
-warn() { printf '\n\033[1;33m!!\033[0m %s\n' "$1"; }
-die()  { printf '\n\033[1;31mERROR:\033[0m %s\n' "$1"; exit 1; }
-
 rand_hex()    { openssl rand -hex "$1"; }
 rand_base64() { openssl rand -base64 "$1" | tr -d '=+/\n' | cut -c1-"$1"; }
 
-# Auto-generate any secret left blank in the CONFIG block above.
-# Track which ones were actually auto-generated (vs. supplied by you) so the
-# final summary can say so explicitly instead of just silently using them.
+# ----------------------------------------------------------------------------
+# Re-running this script (e.g. after editing elektron-stack.conf to change
+# one setting) must NOT silently rotate secrets, RPC passwords or wallet
+# addresses that are already in use -- that would break already-running
+# containers (DB auth, RPC auth, faucet wallet unlock) or orphan funds sent
+# to a previously issued address. So before anything gets (re)written, snap-
+# shot whatever is already deployed from a previous run and prefer that over
+# generating something new.
+# ----------------------------------------------------------------------------
+existing_value() {
+  # existing_value <file> <KEY> -- prints KEY's current value from a
+  # KEY=VALUE file, or nothing if the file/key doesn't exist yet.
+  local file="$1" key="$2"
+  [ -f "$file" ] || return 0
+  grep "^${key}=" "$file" 2>/dev/null | tail -n1 | cut -d= -f2-
+}
+
+PPOOL_ENV_PATH="${STACK_DIR}/elektron-net-ppool/.env"
+FAUCET_ENV_PATH="${STACK_DIR}/elektron-net-faucet/.env"
+BITCOIN_CONF_PATH="${STACK_DIR}/elektron-net/bitcoin.conf"
+
+# Auto-generate any secret left blank in the CONFIG block above -- but only
+# if it wasn't already generated by an earlier run of this script. Track
+# which ones were freshly generated vs. reused vs. supplied by you, so the
+# final summary can say so explicitly.
 GENERATED_SECRETS=""
-[ -z "$JWT_SECRET" ]              && { JWT_SECRET="$(rand_hex 32)"; GENERATED_SECRETS="${GENERATED_SECRETS}JWT_SECRET "; }
-[ -z "$FAUCET_WALLET_PASSPHRASE" ] && { FAUCET_WALLET_PASSPHRASE="$(rand_base64 32)"; GENERATED_SECRETS="${GENERATED_SECRETS}FAUCET_WALLET_PASSPHRASE "; }
-[ -z "$FAUCET_DB_PASS" ]          && { FAUCET_DB_PASS="$(rand_base64 24)"; GENERATED_SECRETS="${GENERATED_SECRETS}FAUCET_DB_PASS "; }
-[ -z "$FAUCET_DB_ROOT_PASS" ]     && { FAUCET_DB_ROOT_PASS="$(rand_base64 24)"; GENERATED_SECRETS="${GENERATED_SECRETS}FAUCET_DB_ROOT_PASS "; }
-[ -z "$FAUCET_ADMIN_PASS" ]       && { FAUCET_ADMIN_PASS="$(rand_base64 16)"; GENERATED_SECRETS="${GENERATED_SECRETS}FAUCET_ADMIN_PASS "; }
-# RPC_USER/RPC_PASSWORD are always auto-generated by rpcauth.py further down
-# (there's no CONFIG variable for the RPC password -- rpcauth.py makes its
-# own if you don't pass one, see step 3 below), so it's always "generated".
+REUSED_SECRETS=""
+
+reuse_or_generate() {
+  # reuse_or_generate <var_name> <source_file> <key> <generator_expr...>
+  local var_name="$1" src_file="$2" key="$3"; shift 3
+  [ -n "${!var_name}" ] && return 0  # explicitly set via config/prompt -- leave it alone
+  local existing
+  existing="$(existing_value "$src_file" "$key")"
+  if [ -n "$existing" ]; then
+    printf -v "$var_name" '%s' "$existing"
+    REUSED_SECRETS="${REUSED_SECRETS}${var_name} "
+  else
+    printf -v "$var_name" '%s' "$("$@")"
+    GENERATED_SECRETS="${GENERATED_SECRETS}${var_name} "
+  fi
+}
+
+reuse_or_generate JWT_SECRET              "$PPOOL_ENV_PATH"  JWT_SECRET              rand_hex 32
+reuse_or_generate FAUCET_WALLET_PASSPHRASE "$FAUCET_ENV_PATH" FAUCET_WALLET_PASS      rand_base64 32
+reuse_or_generate FAUCET_DB_PASS           "$FAUCET_ENV_PATH" FAUCET_DB_PASS          rand_base64 24
+reuse_or_generate FAUCET_DB_ROOT_PASS      "$FAUCET_ENV_PATH" FAUCET_DB_ROOT_PASS     rand_base64 24
+reuse_or_generate FAUCET_ADMIN_PASS        "$FAUCET_ENV_PATH" FAUCET_ADMIN_PASS       rand_base64 16
+
+[ -n "$REUSED_SECRETS" ] && log "Aus vorherigem Lauf wiederverwendet (nicht neu generiert): ${REUSED_SECRETS}"
+
+# RPC-Zugangsdaten (rpcauth.py) genauso wiederverwenden statt bei jedem Lauf
+# neu zu erzeugen -- siehe Schritt 3 weiter unten, das ist hier nur die
+# Vorab-Prüfung, ob es sie schon gibt.
+REUSE_RPC_AUTH=false
+EXISTING_RPC_AUTH_LINE="$(existing_value "$BITCOIN_CONF_PATH" rpcauth)"
+EXISTING_RPC_USER="${EXISTING_RPC_AUTH_LINE%%:*}"
+EXISTING_RPC_PASSWORD="$(existing_value "$PPOOL_ENV_PATH" ELEKTRON_RPC_PASSWORD)"
+if [ -n "$EXISTING_RPC_AUTH_LINE" ] && [ -n "$EXISTING_RPC_PASSWORD" ] && [ "$EXISTING_RPC_USER" = "$RPC_USER" ]; then
+  REUSE_RPC_AUTH=true
+fi
+
+# Wallet-Adressen genauso: getnewaddress liefert bei jedem Aufruf eine NEUE,
+# bislang unbenutzte Adresse -- ein Rerun darf also nicht einfach erneut
+# aufrufen, sonst zeigt POOL_WALLET_ADDRESS/FAUCET_SENDER_ADDR danach auf
+# eine leere Adresse, während bereits eingezahltes ELEK auf der alten liegt.
+# Nur reuse-n, wenn der Wallet-Name seit dem letzten Lauf unverändert ist.
+EXISTING_POOL_WALLET_ADDRESS=""
+if [ "$(existing_value "$PPOOL_ENV_PATH" WALLET_RPC_WALLET_NAME)" = "$POOL_WALLET_NAME" ]; then
+  EXISTING_POOL_WALLET_ADDRESS="$(existing_value "$PPOOL_ENV_PATH" POOL_WALLET_ADDRESS)"
+fi
+EXISTING_FAUCET_SENDER_ADDR=""
+if [ "$(existing_value "$FAUCET_ENV_PATH" FAUCET_WALLET_NAME)" = "$FAUCET_WALLET_NAME" ]; then
+  EXISTING_FAUCET_SENDER_ADDR="$(existing_value "$FAUCET_ENV_PATH" FAUCET_SENDER_ADDR)"
+fi
 
 command -v docker >/dev/null 2>&1 || die "Docker ist nicht installiert."
 docker compose version >/dev/null 2>&1 || die "Docker Compose Plugin fehlt."
@@ -240,10 +437,16 @@ chmod +x elektron-net/docker-entrypoint.sh
 # ============================================================================
 # 3. rpcauth generieren
 # ============================================================================
-log "Generiere RPC-Zugangsdaten (rpcauth.py) ..."
-RPCAUTH_JSON="$(python3 elektron-net/share/rpcauth/rpcauth.py "$RPC_USER" -j)"
-RPC_AUTH_LINE="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['rpcauth'])" "$RPCAUTH_JSON")"
-RPC_PASSWORD="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['password'])" "$RPCAUTH_JSON")"
+if [ "$REUSE_RPC_AUTH" = true ]; then
+  log "RPC-Zugangsdaten aus vorherigem Lauf gefunden -- wiederverwenden (Node-Passwort bleibt gleich)."
+  RPC_AUTH_LINE="$EXISTING_RPC_AUTH_LINE"
+  RPC_PASSWORD="$EXISTING_RPC_PASSWORD"
+else
+  log "Generiere RPC-Zugangsdaten (rpcauth.py) ..."
+  RPCAUTH_JSON="$(python3 elektron-net/share/rpcauth/rpcauth.py "$RPC_USER" -j)"
+  RPC_AUTH_LINE="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['rpcauth'])" "$RPCAUTH_JSON")"
+  RPC_PASSWORD="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['password'])" "$RPCAUTH_JSON")"
+fi
 
 # ============================================================================
 # 4. elektron-net/bitcoin.conf
@@ -526,9 +729,14 @@ create_wallet_if_missing() {
 
 log "Lege Pool-Wallet an ..."
 create_wallet_if_missing "$POOL_WALLET_NAME"
-POOL_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
+  POOL_ADDR="$EXISTING_POOL_WALLET_ADDRESS"
+  log "Pool-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${POOL_ADDR}"
+else
+  POOL_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+  log "Neue Pool-Wallet-Adresse: ${POOL_ADDR}"
+fi
 sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
-log "Pool-Wallet-Adresse: ${POOL_ADDR}"
 
 log "Lege Faucet-Wallet an ..."
 create_wallet_if_missing "$FAUCET_WALLET_NAME"
@@ -547,9 +755,14 @@ else
   wallet_loaded "$FAUCET_WALLET_NAME" || docker compose exec -T elektron-net elektron-cli loadwallet "$FAUCET_WALLET_NAME" >/dev/null
 fi
 
-FAUCET_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
+  FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
+  log "Faucet-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${FAUCET_ADDR}"
+else
+  FAUCET_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+  log "Neue Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
+fi
 sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
-log "Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
 
 # ============================================================================
 # 11. Rest des Stacks hochfahren
@@ -616,9 +829,11 @@ cat <<SUMMARY
    Faucet-Admin-Passwort:        ${FAUCET_ADMIN_PASS}
    Faucet-Wallet-Passphrase:     ${FAUCET_WALLET_PASSPHRASE}
 
- Automatisch generiert wurden (weil im CONFIG-Block leer gelassen):
-   ${GENERATED_SECRETS:-"(nichts -- du hattest bereits alles selbst eingetragen)"}
- Alles andere oben hast du selbst im CONFIG-Block vorgegeben.
+ Neu generiert in diesem Lauf:
+   ${GENERATED_SECRETS:-"(nichts -- alles unten stammt aus einem vorherigen Lauf oder wurde von dir vorgegeben)"}
+ Aus einem vorherigen Lauf wiederverwendet (unverändert, kein Reset):
+   ${REUSED_SECRETS:-"(nichts -- das war der erste Lauf)"}
+ Alles andere oben hast du selbst vorgegeben (Config-Datei/Prompt).
  ----------------------------------------------------------------------------
 
  NÄCHSTE SCHRITTE:

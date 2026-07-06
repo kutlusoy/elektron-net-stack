@@ -4,6 +4,319 @@ Enthält: `elektron-net` (Seed-Node), `elektron-net-ppool` + `elektron-net-ppool
 (PPLNS-Pool), `elektron-net-faucet`. Ein Caddy als gemeinsamer Reverse Proxy
 für HTTPS.
 
+## Schnellstart (automatisiert)
+
+Die Schritte 1-7 weiter unten (Repos klonen, RPC-Zugangsdaten generieren,
+`.env`-Dateien ausfüllen, Node hochfahren, Wallets anlegen, Firewall öffnen)
+erledigt `install-elektron-stack.sh` automatisch für dich. Alle Passwörter
+(RPC, JWT_SECRET, DB, Wallet-Passphrase, Faucet-Admin) werden dabei sicher
+generiert, sofern du sie nicht selbst vorgibst. Manuell bleiben nur die
+**DNS-Einträge (Schritt 1)** und ein paar Minuten Warten, bis der Node
+synchronisiert ist -- der Rest läuft in einem Durchlauf durch.
+
+Bring das Skript (und optional deine ausgefüllte Config-Datei, siehe unten)
+auf den Server -- wie genau, hängt von deinem Zugang ab, siehe
+["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
+weiter unten, falls du nur die Hetzner-Browser-Console hast. Dann:
+
+```bash
+chmod +x install-elektron-stack.sh
+./install-elektron-stack.sh
+```
+
+Für die serverspezifischen Angaben (Domains, IPv4/IPv6, GitHub-Benutzer,
+hCaptcha-Keys, Let's-Encrypt-Mail) hast du zwei gleichwertige Optionen --
+sensible Daten müssen also **nicht** vorher in eine Datei im Repo
+eingetragen werden:
+
+1. **Eingabe auf der Konsole:** Läuft das Skript in einem Terminal, fragt
+   es jeden Wert einzeln ab und zeigt den aktuellen Default in `[...]` --
+   Enter übernimmt ihn einfach. So dauert die Installation nur wenige
+   Tastendrücke -- **du brauchst dafür keine einzige Datei hochzuladen.**
+2. **Config-Datei:** `elektron-stack.conf.example` nach
+   `elektron-stack.conf` kopieren, dort deine Werte eintragen, die Datei
+   neben `install-elektron-stack.sh` ablegen (oder mit `--config
+   /pfad/zur/datei` angeben). Das Skript findet eine `elektron-stack.conf`
+   im selben Verzeichnis automatisch. Alles, was darin leer bleibt, wird
+   -- falls interaktiv gestartet -- trotzdem abgefragt, oder mit `--yes`
+   komplett automatisch (Default-Wert bzw. Auto-Generierung) übernommen --
+   praktisch für unbeaufsichtigte/CI-Läufe.
+
+`elektron-stack.conf` wird nie committet (siehe `.gitignore`) -- lege sie
+also ruhig direkt auf dem Server ab, ohne sie ins Repo einzuchecken.
+
+**Wichtig:** Die eigentlichen `.env`-Dateien und `bitcoin.conf` in den
+Unterordnern (`elektron-net-ppool/.env`, `elektron-net-faucet/.env`,
+`elektron-net/bitcoin.conf`) musst du bei Nutzung des Skripts **nirgends
+selbst hochladen oder hineinkopieren** -- das Skript schreibt sie komplett
+selbst, aus deinen Konsolen-Antworten bzw. aus `elektron-stack.conf`. Das
+manuelle Kopieren der `*.example`-Vorlagen in Schritt 2 unten ist nur für
+den rein manuellen Weg ohne Skript nötig.
+
+Das Skript ist idempotent: schon geklonte Repos, bereits existierende
+Wallets usw. werden erkannt und übersprungen, ein erneuter Lauf (z. B. nach
+einem Server-Reboot oder um eine Einstellung nachzuziehen) richtet nichts
+kaputt.
+
+Details zu jedem einzelnen Schritt -- z. B. falls du lieber alles von Hand
+nachvollziehen oder etwas debuggen willst -- stehen in den Abschnitten
+0-8 unten; das Skript automatisiert genau das, was dort beschrieben ist.
+
+## Dateien auf den Server bringen (nur Hetzner-Console, Windows)
+
+Wenn du auf Hetzner bisher nur die **Browser-Console** (Cloud-Panel ->
+Server -> "Console", ein VNC-Fenster im Browser) nutzt und noch keinen
+SSH-Zugang eingerichtet hast, gibt es dort naturgemäß kein Drag & Drop für
+Datei-Uploads. Drei Wege, vom einfachsten zum aufwendigsten:
+
+**A) Gar nichts hochladen -- direkt auf dem Server herunterladen.**
+Dieses Repo ist öffentlich, du kannst beide Dateien in der Browser-Console
+direkt per `curl` holen, ganz ohne Windows-Zwischenschritt:
+
+```bash
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+chmod +x install-elektron-stack.sh
+./install-elektron-stack.sh
+```
+
+Nutzt du dabei die interaktive Konsolen-Eingabe (Option 1 oben), brauchst
+du überhaupt keine Config-Datei -- die Werte tippst du direkt im
+Browser-Fenster ein, fertig.
+
+**B) `elektron-stack.conf` auf dem Server anlegen -- kein interaktives
+Eintippen bei jedem Lauf.** Damit füllst du alle Werte einmal aus, speicherst
+die Datei dauerhaft auf dem Server, und das Skript liest sie bei jedem
+(erneuten) Lauf automatisch -- keine Rückfragen mehr. Schritt für Schritt:
+
+**1. Browser-Console öffnen** (Hetzner Cloud-Panel -> dein Server ->
+Tab "Console") und einloggen.
+
+**2. Arbeitsverzeichnis anlegen** (beliebiger Ort, hier `/root`):
+
+```bash
+mkdir -p ~/elektron-net-stack-install
+cd ~/elektron-net-stack-install
+```
+
+**3. Skript und Config-Vorlage herunterladen** (Repo ist öffentlich, kein
+Login nötig):
+
+```bash
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/elektron-stack.conf.example
+chmod +x install-elektron-stack.sh
+```
+
+**4. Vorlage kopieren** (die `.example`-Datei bleibt als Referenz unverändert
+liegen, du bearbeitest nur die Kopie):
+
+```bash
+cp elektron-stack.conf.example elektron-stack.conf
+```
+
+**5. Config-Datei mit `nano` bearbeiten:**
+
+```bash
+nano elektron-stack.conf
+```
+
+`nano` öffnet die Datei direkt im Terminal. Mit den Pfeiltasten navigieren,
+Werte hinter dem `=` überschreiben. Die wichtigsten Kurzbefehle unten in
+der Fußzeile von `nano` (`^` steht für Strg):
+
+| Taste | Aktion |
+|---|---|
+| `Strg+O`, dann `Enter` | Speichern (write out) |
+| `Strg+X` | Verlassen (nach dem Speichern) |
+| `Strg+K` | Aktuelle Zeile ausschneiden |
+| `Strg+W` | Suchen |
+
+Trag mindestens diese Werte ein (Rest kann auf dem Default bleiben, siehe
+`elektron-stack.conf.example` für alle Felder mit Erklärung):
+
+```ini
+GITHUB_USER=kutlusoy
+SERVER_IP=46.225.163.85
+SERVER_IPV6=2a01:4f8:1c18:ea01::1
+NODE_DOMAIN=node1.elektron-net.org
+POOL_DOMAIN=pplns.elektron-net.org
+FAUCET_DOMAIN=faucet.elektron-net.org
+CADDY_EMAIL=deine@email.de
+FAUCET_HCAPTCHA_SITE=dein-hcaptcha-site-key
+FAUCET_HCAPTCHA_SECRET=dein-hcaptcha-secret-key
+```
+
+Alle Passwort-/Secret-Felder (`JWT_SECRET`, `FAUCET_DB_PASS`,
+`FAUCET_WALLET_PASSPHRASE`, `FAUCET_ADMIN_PASS`, ...) kannst du leer
+lassen -- die generiert das Skript beim Ausführen automatisch sicher.
+
+Für Werte, die du von deinem Windows-Rechner kopierst (z. B. hCaptcha-Keys):
+Die Hetzner-Browser-Console hat oben in der Werkzeugleiste ein
+Tastatur-/Zwischenablage-Symbol ("Paste text" o. ä.) -- damit fügst du
+Text aus der Windows-Zwischenablage direkt in die Console ein, statt lange
+Werte von Hand abzutippen.
+
+**6. Rechte einschränken** (die Datei bekommt gleich reale Zugangsdaten):
+
+```bash
+chmod 600 elektron-stack.conf
+```
+
+**7. Installieren.** Weil `elektron-stack.conf` im selben Verzeichnis wie
+das Skript liegt, wird sie automatisch gefunden -- kein `--config`-Flag
+nötig. Mit `--yes` läuft alles komplett ohne Rückfragen durch:
+
+```bash
+./install-elektron-stack.sh --yes
+```
+
+Fehlt in der Datei noch ein Wert, den das Skript braucht, wird er trotzdem
+mit dem eingebauten Default bzw. per Auto-Generierung befüllt -- `--yes`
+bricht nie ab, es fragt nur nicht nach.
+
+**8. Später etwas ändern?** Einfach `nano elektron-stack.conf` erneut öffnen,
+Wert anpassen, speichern, `./install-elektron-stack.sh --yes` erneut
+ausführen. Das Skript ist idempotent: bereits vorhandene Repos, Wallets,
+Secrets, RPC-Zugangsdaten und Wallet-Adressen werden erkannt und
+unverändert wiederverwendet statt neu erzeugt -- ein erneuter Lauf rotiert
+also nichts, was bereits läuft, kaputt. Details und schnellere Alternativen
+(nur den betroffenen Container neu starten statt das ganze Skript) siehe
+["Stack aktualisieren"](#stack-aktualisieren) weiter unten.
+
+**C) Echter Datei-Upload von Windows aus -- braucht SSH/SFTP.** Das geht
+nur, wenn SSH auf dem Server erreichbar ist, nicht über die reine
+Browser-Console. Erst prüfen, ob SSH schon klappt (Windows 10/11 haben
+einen OpenSSH-Client eingebaut, PowerShell oder Windows Terminal öffnen):
+
+```powershell
+ssh root@46.225.163.85
+```
+
+Das root-Passwort steht in der Hetzner-Bestätigungsmail bzw. wurde beim
+Anlegen des Servers einmalig angezeigt -- falls du dabei stattdessen einen
+SSH-Key hinterlegt hast, wirst du automatisch ohne Passwort eingeloggt.
+Meldet sich der Server, kannst du:
+
+- **[WinSCP](https://winscp.net)** benutzen (grafisch, Drag & Drop) --
+  neue Verbindung mit Protokoll SFTP, Host = deine Server-IP, Benutzer
+  `root`.
+- oder direkt in PowerShell: `scp .\elektron-stack.conf root@46.225.163.85:/opt/elektron-net-stack/`
+
+Antwortet SSH nicht: im Hetzner Cloud-Firewall-Panel (Tab "Firewalls")
+prüfen, ob Port 22 für dein Netzwerk erlaubt ist -- Standard-Images haben
+den SSH-Server bereits vorinstalliert und laufend, nur eine zu strenge
+Cloud-Firewall blockiert dann typischerweise den Zugriff.
+
+## Stack aktualisieren
+
+Drei unterschiedliche Situationen -- jede mit ihrem eigenen, passenden Weg.
+Kurzfassung zuerst, Details darunter:
+
+| Was hat sich geändert? | Was tun? |
+|---|---|
+| Eine Einstellung in `elektron-stack.conf` (Domain, hCaptcha-Key, Payout-Parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
+| Sourcecode eines der vier Repos (neue Version auf GitHub) | `git pull` im jeweiligen Ordner -> `docker compose up -d --build <service>` |
+| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose pull caddy elektron-faucet-db` -> `docker compose up -d` |
+
+### A) Nur eine Einstellung geändert
+
+```bash
+cd ~/elektron-net-stack-install   # oder wo elektron-stack.conf liegt
+nano elektron-stack.conf          # Wert ändern, speichern
+./install-elektron-stack.sh --yes
+```
+
+Das ist der einfachste Weg und seit der Idempotenz-Absicherung des Skripts
+auch beim wiederholten Aufruf sicher: JWT_SECRET, alle Faucet-Passwörter,
+das RPC-Passwort und die Pool-/Faucet-Wallet-Adressen werden aus dem
+vorherigen Lauf **wiedererkannt und unverändert übernommen**, nicht neu
+generiert -- ein Rerun rotiert also keine Zugangsdaten, die die laufenden
+Container bereits verwenden, und schickt dich nicht auf eine neue,
+ungefüllte Wallet-Adresse. Am Ende des Laufs siehst du in der
+Zusammenfassung, welche Werte "neu generiert" vs. "wiederverwendet" wurden.
+
+Schneller, wenn du nur eine einzelne Datei anfassen willst (ohne
+DNS-/Firewall-Checks erneut durchlaufen zu lassen): direkt in der Ziel-Datei
+editieren und nur den betroffenen Service neu erzeugen:
+
+```bash
+cd /opt/elektron-net-stack
+nano elektron-net-faucet/.env        # oder elektron-net-ppool/.env, caddy/Caddyfile, elektron-net/bitcoin.conf
+docker compose up -d --force-recreate elektron-faucet-app
+```
+
+| Geänderte Datei | Neu zu startender Service |
+|---|---|
+| `caddy/Caddyfile` | `caddy` |
+| `elektron-net-ppool/.env` | `elektron-ppool` |
+| `elektron-net-ppool-ui`-Umgebung | `elektron-ppool-ui` |
+| `elektron-net-faucet/.env` | `elektron-faucet-app` |
+| `elektron-net/bitcoin.conf` | `elektron-net` (kurzer Node-Neustart, P2P kurz offline) |
+
+**Achtung:** `FAUCET_DB_PASS`, `FAUCET_DB_ROOT_PASS` und
+`FAUCET_WALLET_PASSPHRASE` von Hand in der `.env` zu ändern bricht die
+Verbindung zur bereits initialisierten MariaDB bzw. zum bereits
+verschlüsselten Wallet -- diese drei nach dem Ersteinrichten nicht mehr
+von Hand anfassen (das Skript selbst lässt sie beim Rerun ohnehin
+automatisch unangetastet, siehe oben).
+
+### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet)
+
+`install-elektron-stack.sh` klont jedes Repo nur **einmal** -- ein Rerun
+holt bei bereits vorhandenen Klonen bewusst **keine** neuen Commits (das
+ist Absicht, damit ein normaler Rerun keine unerwarteten Code-Änderungen
+einspielt). Für ein Source-Update also selbst `git pull`, dann nur den
+betroffenen Container neu bauen:
+
+```bash
+cd /opt/elektron-net-stack/elektron-net-ppool   # Repo mit der neuen Version
+git pull
+cd /opt/elektron-net-stack
+docker compose up -d --build elektron-ppool     # baut nur dieses Image neu und ersetzt den Container
+```
+
+Service-Namen für die anderen drei Repos: `elektron-net`,
+`elektron-ppool-ui`, `elektron-faucet-app`. Für alle vier auf einmal:
+
+```bash
+cd /opt/elektron-net-stack
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
+  (cd "$d" && git pull)
+done
+docker compose up -d --build
+```
+
+### C) Docker-Images aktualisieren (Caddy, MariaDB)
+
+`caddy` und `elektron-faucet-db` sind fertige Images von Docker Hub (kein
+eigener Build) -- neue Version holen und Container damit neu starten:
+
+```bash
+cd /opt/elektron-net-stack
+docker compose pull caddy elektron-faucet-db
+docker compose up -d
+```
+
+Die Datenbank-Daten liegen im Bind-Mount `./data/faucet-db` und bleiben
+beim Image-Update erhalten (MariaDB-Minor-Updates sind abwärtskompatibel;
+bei einem Major-Versionssprung vorher deren Release-Notes prüfen).
+
+### Alles zusammen (Wartungsfenster)
+
+```bash
+cd /opt/elektron-net-stack
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
+  (cd "$d" && git pull)
+done
+docker compose pull
+docker compose up -d --build
+```
+
+Kurzer Hinweis: Der `elektron-net`-Container neu zu starten unterbricht kurz
+den P2P-Betrieb (Sekunden bis wenige Minuten, bis der Node wieder
+synchron ist) -- für den Node am besten eine ruhige Zeit wählen, Pool und
+Faucet sind davon unabhängig neu startbar.
+
 ## 0. Voraussetzung
 
 Docker CE + Compose-Plugin bereits installiert (laut dir schon erledigt).
@@ -73,25 +386,37 @@ git clone https://github.com/kutlusoy/elektron-net-faucet.git
 ```
 
 Dann die Dateien aus diesem Paket **in dieselbe Struktur** kopieren (überschreibt
-nichts Bestehendes, ergänzt nur):
+nichts Bestehendes, ergänzt nur). Die `*.example`-Dateien sind Vorlagen --
+beim Kopieren die Endung `.example` weglassen (siehe Zielname rechts):
 
 ```
 /opt/elektron-net-stack/
-├── docker-compose.yml              <- aus diesem Paket
-├── caddy/Caddyfile                 <- aus diesem Paket
+├── docker-compose.yml                      <- aus diesem Paket
+├── caddy/Caddyfile                         <- aus diesem Paket
 ├── elektron-net/
-│   ├── Dockerfile                  <- aus diesem Paket (existiert im Repo noch nicht)
-│   ├── docker-entrypoint.sh        <- aus diesem Paket
-│   └── bitcoin.conf                <- aus diesem Paket (rpcauth noch eintragen, siehe 3.)
+│   ├── Dockerfile                          <- aus diesem Paket (existiert im Repo noch nicht)
+│   ├── docker-entrypoint.sh                <- aus diesem Paket
+│   └── bitcoin.conf.example  -> bitcoin.conf   (rpcauth noch eintragen, siehe 3.)
 ├── elektron-net-ppool/
-│   ├── Dockerfile                  <- schon im Repo
-│   └── .env                        <- aus diesem Paket (Passwörter noch eintragen)
+│   ├── Dockerfile                          <- schon im Repo
+│   └── .env.example          -> .env           (Passwörter noch eintragen)
 ├── elektron-net-ppool-ui/
-│   └── Dockerfile                  <- schon im Repo (nichts weiter nötig)
+│   └── Dockerfile                          <- schon im Repo (nichts weiter nötig)
 └── elektron-net-faucet/
-    ├── Dockerfile                  <- schon im Repo
-    └── .env                        <- aus diesem Paket (Passwörter noch eintragen)
+    ├── Dockerfile                          <- schon im Repo
+    └── .env.example          -> .env           (Passwörter noch eintragen)
 ```
+
+```bash
+cp elektron-net-stack/elektron-net/bitcoin.conf.example        /opt/elektron-net-stack/elektron-net/bitcoin.conf
+cp elektron-net-stack/elektron-net-ppool/.env.example           /opt/elektron-net-stack/elektron-net-ppool/.env
+cp elektron-net-stack/elektron-net-faucet/.env.example          /opt/elektron-net-stack/elektron-net-faucet/.env
+```
+
+(Die Vorlagen selbst -- `*.example` -- bleiben unangetastet im Repo, damit
+immer eine saubere Referenz online steht. `install-elektron-stack.sh`
+braucht diesen manuellen Kopierschritt nicht, es schreibt `bitcoin.conf`
+und beide `.env`-Dateien direkt selbst mit generierten Werten.)
 
 ## 3. RPC-Zugangsdaten generieren
 
