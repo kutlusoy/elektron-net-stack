@@ -176,9 +176,12 @@ bricht nie ab, es fragt nur nicht nach.
 
 **8. Später etwas ändern?** Einfach `nano elektron-stack.conf` erneut öffnen,
 Wert anpassen, speichern, `./install-elektron-stack.sh --yes` erneut
-ausführen. Das Skript ist idempotent (erkennt bereits vorhandene Repos,
-Wallets usw.) -- ein erneuter Lauf richtet nichts kaputt, du musst dafür
-nie wieder etwas interaktiv eintippen.
+ausführen. Das Skript ist idempotent: bereits vorhandene Repos, Wallets,
+Secrets, RPC-Zugangsdaten und Wallet-Adressen werden erkannt und
+unverändert wiederverwendet statt neu erzeugt -- ein erneuter Lauf rotiert
+also nichts, was bereits läuft, kaputt. Details und schnellere Alternativen
+(nur den betroffenen Container neu starten statt das ganze Skript) siehe
+["Stack aktualisieren"](#stack-aktualisieren) weiter unten.
 
 **C) Echter Datei-Upload von Windows aus -- braucht SSH/SFTP.** Das geht
 nur, wenn SSH auf dem Server erreichbar ist, nicht über die reine
@@ -203,6 +206,116 @@ Antwortet SSH nicht: im Hetzner Cloud-Firewall-Panel (Tab "Firewalls")
 prüfen, ob Port 22 für dein Netzwerk erlaubt ist -- Standard-Images haben
 den SSH-Server bereits vorinstalliert und laufend, nur eine zu strenge
 Cloud-Firewall blockiert dann typischerweise den Zugriff.
+
+## Stack aktualisieren
+
+Drei unterschiedliche Situationen -- jede mit ihrem eigenen, passenden Weg.
+Kurzfassung zuerst, Details darunter:
+
+| Was hat sich geändert? | Was tun? |
+|---|---|
+| Eine Einstellung in `elektron-stack.conf` (Domain, hCaptcha-Key, Payout-Parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
+| Sourcecode eines der vier Repos (neue Version auf GitHub) | `git pull` im jeweiligen Ordner -> `docker compose up -d --build <service>` |
+| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose pull caddy elektron-faucet-db` -> `docker compose up -d` |
+
+### A) Nur eine Einstellung geändert
+
+```bash
+cd ~/elektron-net-stack-install   # oder wo elektron-stack.conf liegt
+nano elektron-stack.conf          # Wert ändern, speichern
+./install-elektron-stack.sh --yes
+```
+
+Das ist der einfachste Weg und seit der Idempotenz-Absicherung des Skripts
+auch beim wiederholten Aufruf sicher: JWT_SECRET, alle Faucet-Passwörter,
+das RPC-Passwort und die Pool-/Faucet-Wallet-Adressen werden aus dem
+vorherigen Lauf **wiedererkannt und unverändert übernommen**, nicht neu
+generiert -- ein Rerun rotiert also keine Zugangsdaten, die die laufenden
+Container bereits verwenden, und schickt dich nicht auf eine neue,
+ungefüllte Wallet-Adresse. Am Ende des Laufs siehst du in der
+Zusammenfassung, welche Werte "neu generiert" vs. "wiederverwendet" wurden.
+
+Schneller, wenn du nur eine einzelne Datei anfassen willst (ohne
+DNS-/Firewall-Checks erneut durchlaufen zu lassen): direkt in der Ziel-Datei
+editieren und nur den betroffenen Service neu erzeugen:
+
+```bash
+cd /opt/elektron-net-stack
+nano elektron-net-faucet/.env        # oder elektron-net-ppool/.env, caddy/Caddyfile, elektron-net/bitcoin.conf
+docker compose up -d --force-recreate elektron-faucet-app
+```
+
+| Geänderte Datei | Neu zu startender Service |
+|---|---|
+| `caddy/Caddyfile` | `caddy` |
+| `elektron-net-ppool/.env` | `elektron-ppool` |
+| `elektron-net-ppool-ui`-Umgebung | `elektron-ppool-ui` |
+| `elektron-net-faucet/.env` | `elektron-faucet-app` |
+| `elektron-net/bitcoin.conf` | `elektron-net` (kurzer Node-Neustart, P2P kurz offline) |
+
+**Achtung:** `FAUCET_DB_PASS`, `FAUCET_DB_ROOT_PASS` und
+`FAUCET_WALLET_PASSPHRASE` von Hand in der `.env` zu ändern bricht die
+Verbindung zur bereits initialisierten MariaDB bzw. zum bereits
+verschlüsselten Wallet -- diese drei nach dem Ersteinrichten nicht mehr
+von Hand anfassen (das Skript selbst lässt sie beim Rerun ohnehin
+automatisch unangetastet, siehe oben).
+
+### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet)
+
+`install-elektron-stack.sh` klont jedes Repo nur **einmal** -- ein Rerun
+holt bei bereits vorhandenen Klonen bewusst **keine** neuen Commits (das
+ist Absicht, damit ein normaler Rerun keine unerwarteten Code-Änderungen
+einspielt). Für ein Source-Update also selbst `git pull`, dann nur den
+betroffenen Container neu bauen:
+
+```bash
+cd /opt/elektron-net-stack/elektron-net-ppool   # Repo mit der neuen Version
+git pull
+cd /opt/elektron-net-stack
+docker compose up -d --build elektron-ppool     # baut nur dieses Image neu und ersetzt den Container
+```
+
+Service-Namen für die anderen drei Repos: `elektron-net`,
+`elektron-ppool-ui`, `elektron-faucet-app`. Für alle vier auf einmal:
+
+```bash
+cd /opt/elektron-net-stack
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
+  (cd "$d" && git pull)
+done
+docker compose up -d --build
+```
+
+### C) Docker-Images aktualisieren (Caddy, MariaDB)
+
+`caddy` und `elektron-faucet-db` sind fertige Images von Docker Hub (kein
+eigener Build) -- neue Version holen und Container damit neu starten:
+
+```bash
+cd /opt/elektron-net-stack
+docker compose pull caddy elektron-faucet-db
+docker compose up -d
+```
+
+Die Datenbank-Daten liegen im Bind-Mount `./data/faucet-db` und bleiben
+beim Image-Update erhalten (MariaDB-Minor-Updates sind abwärtskompatibel;
+bei einem Major-Versionssprung vorher deren Release-Notes prüfen).
+
+### Alles zusammen (Wartungsfenster)
+
+```bash
+cd /opt/elektron-net-stack
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
+  (cd "$d" && git pull)
+done
+docker compose pull
+docker compose up -d --build
+```
+
+Kurzer Hinweis: Der `elektron-net`-Container neu zu starten unterbricht kurz
+den P2P-Betrieb (Sekunden bis wenige Minuten, bis der Node wieder
+synchron ist) -- für den Node am besten eine ruhige Zeit wählen, Pool und
+Faucet sind davon unabhängig neu startbar.
 
 ## 0. Voraussetzung
 
