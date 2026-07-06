@@ -372,7 +372,7 @@ clone_or_skip "elektron-net-ppool"
 clone_or_skip "elektron-net-ppool-ui"
 clone_or_skip "elektron-net-faucet"
 
-mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config
+mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config external-wallets
 
 # ============================================================================
 # 2. elektron-net: Dockerfile + Entrypoint (existieren im Repo noch nicht)
@@ -765,6 +765,49 @@ fi
 sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
 
 # ============================================================================
+# 10b. Wallet-Backups -- vollständiger Private-Key-Export (einmalig)
+# ============================================================================
+# "Komplettes Backup" heißt hier: nicht nur die Passphrase (siehe oben),
+# sondern die tatsächlichen privaten Schlüssel der Pool-/Faucet-Wallet.
+# dumpwallet funktioniert nur bei Legacy-Wallets; ist die hier von
+# createwallet angelegte Wallet eine Descriptor-Wallet, schlägt es fehl und
+# wir weichen auf "listdescriptors true" aus (liefert dieselben privaten
+# Schlüssel als Descriptor-Strings). Läuft nur EINMAL -- existiert die
+# Backup-Datei schon, wird nichts erneut geschrieben/überschrieben.
+backup_wallet_privkeys() {
+  local wname="$1" host_path="$2" container_path="$3"
+  if [ -f "$host_path" ]; then
+    log "Wallet-Backup für '$wname' existiert bereits, überspringe: ${host_path}"
+    return
+  fi
+  log "Exportiere private Schlüssel der Wallet '$wname' (vollständiges Backup) ..."
+  if docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" dumpwallet "$container_path" >/dev/null 2>&1; then
+    log "Wallet-Backup (dumpwallet, Legacy-Format) gespeichert: ${host_path}"
+  elif docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" listdescriptors true > "$host_path" 2>/dev/null; then
+    log "Wallet-Backup (private Descriptors) gespeichert: ${host_path}"
+  else
+    warn "Konnte kein automatisches Wallet-Backup für '$wname' erstellen -- bitte manuell prüfen: docker compose exec elektron-net elektron-cli -rpcwallet=$wname listdescriptors true"
+    rm -f "$host_path"
+    return
+  fi
+  chmod 600 "$host_path" 2>/dev/null || true
+}
+
+POOL_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/pool-wallet-privkeys-backup.txt"
+FAUCET_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/faucet-wallet-privkeys-backup.txt"
+
+backup_wallet_privkeys "$POOL_WALLET_NAME" "$POOL_WALLET_DUMP_HOST" "/data/pool-wallet-privkeys-backup.txt"
+
+if [ -f "$FAUCET_WALLET_DUMP_HOST" ]; then
+  log "Wallet-Backup für '$FAUCET_WALLET_NAME' existiert bereits, überspringe."
+else
+  log "Entsperre Faucet-Wallet kurz für den Private-Key-Export ..."
+  docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" walletpassphrase "$FAUCET_WALLET_PASSPHRASE" 60 >/dev/null 2>&1 || warn "Konnte Faucet-Wallet nicht entsperren -- Private-Key-Export wird wahrscheinlich fehlschlagen, Passphrase in elektron-net-faucet/.env prüfen."
+  backup_wallet_privkeys "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
+  docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" walletlock >/dev/null 2>&1 || true
+fi
+
+# ============================================================================
 # 11. Rest des Stacks hochfahren
 # ============================================================================
 log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy) ..."
@@ -803,6 +846,24 @@ warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben 4 
 SUMMARY_FILE="${STACK_DIR}/ZUGANGSDATEN.txt"
 GENERATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
+# Jede Wallet bleibt ihre eigene, separat schützbare Datei (chmod 600) --
+# hier wird für die Übersicht nur AUFGELISTET, was in external-wallets/
+# liegt (Dateiname + Pfad), der Private-Key-Inhalt selbst wird NICHT
+# zusätzlich in ZUGANGSDATEN.txt hineinkopiert. So gibt es pro Wallet genau
+# eine Stelle mit dem eigentlichen Geheimnis, statt es zu duplizieren.
+EXTERNAL_WALLETS_DIR="${STACK_DIR}/external-wallets"
+EXTERNAL_WALLETS_BLOCK="(keine Dateien in ${EXTERNAL_WALLETS_DIR}/ gefunden)"
+if [ -d "$EXTERNAL_WALLETS_DIR" ] && [ -n "$(ls -A "$EXTERNAL_WALLETS_DIR" 2>/dev/null)" ]; then
+  EXTERNAL_WALLETS_BLOCK=""
+  for f in "$EXTERNAL_WALLETS_DIR"/*; do
+    [ -f "$f" ] || continue
+    chmod 600 "$f" 2>/dev/null || true
+    EXTERNAL_WALLETS_BLOCK="${EXTERNAL_WALLETS_BLOCK}
+  - $(basename "$f")
+    -> ${f}"
+  done
+fi
+
 {
 cat <<SUMMARY
 
@@ -810,18 +871,18 @@ cat <<SUMMARY
  ELEKTRON NET STACK -- ZUGANGSDATEN UND SERVER-INFOS
  Zuletzt aktualisiert: ${GENERATED_AT}  (bei jedem Lauf von install-elektron-stack.sh neu geschrieben)
 ============================================================================
-# Diese Datei bündelt alles, was install-elektron-stack.sh selbst erzeugt
-# hat -- RPC-/DB-/Wallet-Zugangsdaten dieses Stacks. Sie enthält NICHT
-# Private Keys externer/offline erzeugter Wallets (z.B. ein mit einem
-# eigenen generate_address.py-Skript erstelltes Prepaid-Guthaben) -- solche
-# Private Keys sieht dieser Installer nie und gehören separat, sicher und
-# NICHT auf diesem Server verwahrt.
+# Diese Datei ist die zentrale ÜBERSICHT über ALLE Zugangsdaten dieses
+# Stacks: RPC-/DB-/JWT-/Faucet-Admin-Passwörter stehen direkt unten drin.
+# Wallet-Private-Keys dagegen bleiben bewusst in ihren jeweils EIGENEN
+# Dateien (Pool/Faucet-Backup, alles in ${EXTERNAL_WALLETS_DIR}/) -- hier
+# stehen nur deren Dateiname und Pfad als Verweis, damit jedes Wallet-
+# Geheimnis nur an einer einzigen Stelle liegt statt dupliziert zu werden.
 #
-# Diese Datei selbst enthält echte Passwörter -- chmod 600 (unten bereits
-# automatisch gesetzt), nicht kopieren/committen/per Klartext-Mail
-# verschicken. Einmalig offline sichern (z.B. per WinSCP/scp herunterladen,
-# siehe README "Dateien auf den Server bringen"), dann auf dem Server unter
-# Verschluss lassen.
+# Trotzdem: chmod 600 ist unten bereits automatisch gesetzt; nicht
+# kopieren/committen/per Klartext-Mail verschicken. Einmalig offline
+# sichern (z.B. per WinSCP/scp herunterladen, siehe README "Dateien auf den
+# Server bringen") -- am besten zusammen mit den referenzierten
+# Wallet-Dateien -- und danach auf dem Server unter Verschluss lassen.
 ============================================================================
 
  Node (P2P-Seed):     ${NODE_DOMAIN}:8333
@@ -835,6 +896,15 @@ cat <<SUMMARY
 
  Pool-Wallet-Adresse:   ${POOL_ADDR}
  Faucet-Wallet-Adresse: ${FAUCET_ADDR}
+
+ Vollständiger Private-Key-Export dieser beiden Wallets (Legacy-Dump oder
+ Descriptor-Fallback, je nachdem was unterstützt wurde):
+   ${POOL_WALLET_DUMP_HOST}
+   ${FAUCET_WALLET_DUMP_HOST}
+ (chmod 600, einmalig beim ersten Anlegen erzeugt -- wird bei Reruns nicht
+ überschrieben. Das ist die eigentliche Wiederherstellungs-Grundlage für
+ den Fall, dass der Server verloren geht; die Passphrase oben allein reicht
+ dafür NICHT, die entsperrt nur eine bereits vorhandene Wallet-Datei.)
 
  ----------------------------------------------------------------------------
  ALLE ZUGANGSDATEN AUF EINEN BLICK:
@@ -911,6 +981,16 @@ cat <<SUMMARY
  ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS). Es gibt
  keine andere Kopie, auch nicht auf der Blockchain. Verlierst du beide
  Dateien, ist das Faucet-Wallet-Guthaben nicht mehr ausgebbar.
+
+ ----------------------------------------------------------------------------
+ EXTERNE / SELBST ERZEUGTE WALLETS
+ (jede Datei in ${EXTERNAL_WALLETS_DIR}/ -- z.B. eine offline mit einem
+ eigenen Skript wie generate_address.py erzeugte Prepaid-Wallet -- bleibt
+ ihre eigene separate Datei mit chmod 600. Hier nur Name + Pfad als
+ Verweis, der eigentliche Private Key steht NUR in der jeweiligen Datei
+ selbst, nicht zusätzlich hier. Lege dort beliebige Dateien ab, dann
+ tauchen sie ab dem nächsten Lauf hier in der Liste auf.)
+${EXTERNAL_WALLETS_BLOCK}
 ============================================================================
 SUMMARY
 } | tee "$SUMMARY_FILE"

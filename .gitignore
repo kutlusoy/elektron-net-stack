@@ -24,3 +24,9 @@ elektron-net-ppool-ui/
 # (ohne echte Werte) gehört ins Repo.
 elektron-stack.conf
 
+# Von install-elektron-stack.sh geschriebene Zusammenfassung mit ALLEN
+# Zugangsdaten (RPC/DB/Wallet-Passwörter, Wallet-Private-Keys, alles aus
+# external-wallets/) -- niemals committen.
+ZUGANGSDATEN.txt
+external-wallets/
+
