@@ -122,25 +122,37 @@ git clone https://github.com/kutlusoy/elektron-net-faucet.git
 ```
 
 Dann die Dateien aus diesem Paket **in dieselbe Struktur** kopieren (überschreibt
-nichts Bestehendes, ergänzt nur):
+nichts Bestehendes, ergänzt nur). Die `*.example`-Dateien sind Vorlagen --
+beim Kopieren die Endung `.example` weglassen (siehe Zielname rechts):
 
 ```
 /opt/elektron-net-stack/
-├── docker-compose.yml              <- aus diesem Paket
-├── caddy/Caddyfile                 <- aus diesem Paket
+├── docker-compose.yml                      <- aus diesem Paket
+├── caddy/Caddyfile                         <- aus diesem Paket
 ├── elektron-net/
-│   ├── Dockerfile                  <- aus diesem Paket (existiert im Repo noch nicht)
-│   ├── docker-entrypoint.sh        <- aus diesem Paket
-│   └── bitcoin.conf                <- aus diesem Paket (rpcauth noch eintragen, siehe 3.)
+│   ├── Dockerfile                          <- aus diesem Paket (existiert im Repo noch nicht)
+│   ├── docker-entrypoint.sh                <- aus diesem Paket
+│   └── bitcoin.conf.example  -> bitcoin.conf   (rpcauth noch eintragen, siehe 3.)
 ├── elektron-net-ppool/
-│   ├── Dockerfile                  <- schon im Repo
-│   └── .env                        <- aus diesem Paket (Passwörter noch eintragen)
+│   ├── Dockerfile                          <- schon im Repo
+│   └── .env.example          -> .env           (Passwörter noch eintragen)
 ├── elektron-net-ppool-ui/
-│   └── Dockerfile                  <- schon im Repo (nichts weiter nötig)
+│   └── Dockerfile                          <- schon im Repo (nichts weiter nötig)
 └── elektron-net-faucet/
-    ├── Dockerfile                  <- schon im Repo
-    └── .env                        <- aus diesem Paket (Passwörter noch eintragen)
+    ├── Dockerfile                          <- schon im Repo
+    └── .env.example          -> .env           (Passwörter noch eintragen)
 ```
+
+```bash
+cp elektron-net-stack/elektron-net/bitcoin.conf.example        /opt/elektron-net-stack/elektron-net/bitcoin.conf
+cp elektron-net-stack/elektron-net-ppool/.env.example           /opt/elektron-net-stack/elektron-net-ppool/.env
+cp elektron-net-stack/elektron-net-faucet/.env.example          /opt/elektron-net-stack/elektron-net-faucet/.env
+```
+
+(Die Vorlagen selbst -- `*.example` -- bleiben unangetastet im Repo, damit
+immer eine saubere Referenz online steht. `install-elektron-stack.sh`
+braucht diesen manuellen Kopierschritt nicht, es schreibt `bitcoin.conf`
+und beide `.env`-Dateien direkt selbst mit generierten Werten.)
 
 ## 3. RPC-Zugangsdaten generieren
 

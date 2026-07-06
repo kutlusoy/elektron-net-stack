@@ -1,7 +1,7 @@
-# Von install-elektron-stack.sh generierte Secrets -- NIE committen.
-# Aktuell liegen hier nur Platzhalter-Templates im Repo; sobald das Skript
-# einmal live läuft, werden diese beiden Dateien mit echten Passwörtern
-# überschrieben.
+# Von install-elektron-stack.sh generierte Secrets -- NIE committen. Die
+# zugehörigen Vorlagen ohne echte Werte (elektron-net-ppool/.env.example,
+# elektron-net-faucet/.env.example, elektron-net/bitcoin.conf.example)
+# bleiben bewusst getrackt und stehen als Referenz im Repo.
 elektron-net-ppool/.env
 elektron-net-faucet/.env
 .env
