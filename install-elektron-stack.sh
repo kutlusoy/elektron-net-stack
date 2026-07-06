@@ -796,12 +796,32 @@ fi
 warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben 4 Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
 
 # ============================================================================
-# 13. Zusammenfassung
+# 13. Zusammenfassung -- wird angezeigt UND dauerhaft in eine Datei
+#     geschrieben (SUMMARY_FILE), damit du sie nicht bei diesem einen Lauf
+#     abschreiben musst.
 # ============================================================================
+SUMMARY_FILE="${STACK_DIR}/ZUGANGSDATEN.txt"
+GENERATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+{
 cat <<SUMMARY
 
 ============================================================================
- FERTIG
+ ELEKTRON NET STACK -- ZUGANGSDATEN UND SERVER-INFOS
+ Zuletzt aktualisiert: ${GENERATED_AT}  (bei jedem Lauf von install-elektron-stack.sh neu geschrieben)
+============================================================================
+# Diese Datei bündelt alles, was install-elektron-stack.sh selbst erzeugt
+# hat -- RPC-/DB-/Wallet-Zugangsdaten dieses Stacks. Sie enthält NICHT
+# Private Keys externer/offline erzeugter Wallets (z.B. ein mit einem
+# eigenen generate_address.py-Skript erstelltes Prepaid-Guthaben) -- solche
+# Private Keys sieht dieser Installer nie und gehören separat, sicher und
+# NICHT auf diesem Server verwahrt.
+#
+# Diese Datei selbst enthält echte Passwörter -- chmod 600 (unten bereits
+# automatisch gesetzt), nicht kopieren/committen/per Klartext-Mail
+# verschicken. Einmalig offline sichern (z.B. per WinSCP/scp herunterladen,
+# siehe README "Dateien auf den Server bringen"), dann auf dem Server unter
+# Verschluss lassen.
 ============================================================================
 
  Node (P2P-Seed):     ${NODE_DOMAIN}:8333
@@ -817,9 +837,7 @@ cat <<SUMMARY
  Faucet-Wallet-Adresse: ${FAUCET_ADDR}
 
  ----------------------------------------------------------------------------
- ALLE ZUGANGSDATEN AUF EINEN BLICK (jetzt kopieren, wird nicht nochmal so
- vollständig angezeigt -- danach musst du sie aus den .env-Dateien lesen,
- siehe Befehle ganz unten):
+ ALLE ZUGANGSDATEN AUF EINEN BLICK:
 
    RPC-Benutzer (Node):          ${RPC_USER}
    RPC-Passwort (Node):          ${RPC_PASSWORD}
@@ -828,9 +846,11 @@ cat <<SUMMARY
    Faucet-DB-Root-Passwort:      ${FAUCET_DB_ROOT_PASS}
    Faucet-Admin-Passwort:        ${FAUCET_ADMIN_PASS}
    Faucet-Wallet-Passphrase:     ${FAUCET_WALLET_PASSPHRASE}
+   hCaptcha Site-Key:            ${FAUCET_HCAPTCHA_SITE:-"(nicht gesetzt)"}
+   hCaptcha Secret-Key:          ${FAUCET_HCAPTCHA_SECRET:-"(nicht gesetzt)"}
 
- Neu generiert in diesem Lauf:
-   ${GENERATED_SECRETS:-"(nichts -- alles unten stammt aus einem vorherigen Lauf oder wurde von dir vorgegeben)"}
+ Bei diesem Lauf neu generiert:
+   ${GENERATED_SECRETS:-"(nichts -- alles oben stammt aus einem vorherigen Lauf oder wurde von dir vorgegeben)"}
  Aus einem vorherigen Lauf wiederverwendet (unverändert, kein Reset):
    ${REUSED_SECRETS:-"(nichts -- das war der erste Lauf)"}
  Alles andere oben hast du selbst vorgegeben (Config-Datei/Prompt).
@@ -863,28 +883,35 @@ cat <<SUMMARY
  die Wallet auf einen zweiten, isolierten Hetzner-Server auslagerst (siehe
  ppool-README §9, "network-isolated wallet server").
 
- Alle Secrets liegen dauerhaft in (jederzeit später wieder auslesbar):
+ ----------------------------------------------------------------------------
+ NÜTZLICHE BEFEHLE (siehe auch README "Stack aktualisieren"):
+
+   Status aller Container:
+     docker compose -f ${STACK_DIR}/docker-compose.yml ps
+   Logs verfolgen (z.B. Node):
+     docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net
+   Node-Sync-Status:
+     docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-net elektron-cli getblockchaininfo
+   Nur einen Service nach einer .env-Änderung neu starten:
+     docker compose -f ${STACK_DIR}/docker-compose.yml up -d --force-recreate <service>
+   Diese Übersicht jederzeit erneut ansehen:
+     cat ${SUMMARY_FILE}
+ ----------------------------------------------------------------------------
+
+ Diese Zusammenfassung wird bei jedem (Re-)Lauf des Skripts hier neu
+ geschrieben: ${SUMMARY_FILE}
+ Die zugrundeliegenden Rohdaten stehen außerdem dauerhaft in:
    ${STACK_DIR}/elektron-net-ppool/.env
    ${STACK_DIR}/elektron-net-faucet/.env
- (chmod 600, nicht committen.)
-
- So bekommst du die Werte SPÄTER wieder, ohne das Skript erneut laufen zu
- lassen (die obige Anzeige gibt's nur bei diesem einen Lauf):
-
-   cat ${STACK_DIR}/elektron-net-ppool/.env
-   cat ${STACK_DIR}/elektron-net-faucet/.env
-
- Oder gezielt ein einzelnes Feld, z.B. das Faucet-Admin-Passwort:
-
-   grep FAUCET_ADMIN_PASS ${STACK_DIR}/elektron-net-faucet/.env
-
- Die node.conf mit dem rpcauth-Eintrag (Hash, nicht das Klartext-Passwort):
-   cat ${STACK_DIR}/elektron-net/bitcoin.conf
+   ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth-Hash, nicht das Klartext-Passwort)
+ (alle chmod 600, nicht committen.)
 
  WICHTIG: encryptwallet ist ein Einwegvorgang -- die
- Faucet-Wallet-Passphrase oben steht NUR in
+ Faucet-Wallet-Passphrase oben steht NUR in dieser Datei und in
  ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS). Es gibt
- keine andere Kopie, auch nicht auf der Blockchain. Verlierst du diese
- Datei, ist das Faucet-Wallet-Guthaben nicht mehr ausgebbar.
+ keine andere Kopie, auch nicht auf der Blockchain. Verlierst du beide
+ Dateien, ist das Faucet-Wallet-Guthaben nicht mehr ausgebbar.
 ============================================================================
 SUMMARY
+} | tee "$SUMMARY_FILE"
+chmod 600 "$SUMMARY_FILE"

@@ -14,6 +14,17 @@ generiert, sofern du sie nicht selbst vorgibst. Manuell bleiben nur die
 **DNS-Einträge (Schritt 1)** und ein paar Minuten Warten, bis der Node
 synchronisiert ist -- der Rest läuft in einem Durchlauf durch.
 
+**Alle Zugangsdaten landen gesammelt in einer Datei auf dem Server:**
+`$STACK_DIR/ZUGANGSDATEN.txt` (Standard: `/opt/elektron-net-stack/ZUGANGSDATEN.txt`),
+automatisch mit `chmod 600` versehen. Enthält RPC-/DB-/Wallet-Passwörter,
+JWT_SECRET, Faucet-Admin-Login, Pool-/Faucet-Wallet-Adressen, Domains/IPs
+und eine Befehlsreferenz -- wird bei jedem (Re-)Lauf des Skripts neu
+geschrieben, du musst also nichts bei der einmaligen Terminal-Ausgabe
+abschreiben. **Nicht enthalten** sind Private Keys externer, offline
+erzeugter Wallets (z. B. ein separates Prepaid-Guthaben) -- die sieht der
+Installer nie und die bleiben in deiner eigenen Verwahrung, nicht auf dem
+Server.
+
 Bring das Skript (und optional deine ausgefüllte Config-Datei, siehe unten)
 auf den Server -- wie genau, hängt von deinem Zugang ab, siehe
 ["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
@@ -526,3 +537,8 @@ Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
   einschränken (`chmod 600`).
 - `node1.elektron-net.org` hat absichtlich keinen Caddy-Block — das ist der
   reine P2P-Seed, kein Webdienst.
+- Nutzt du `install-elektron-stack.sh`, liegt zusätzlich eine gebündelte
+  Übersicht aller Zugangsdaten in `$STACK_DIR/ZUGANGSDATEN.txt` (`chmod 600`,
+  wird bei jedem Lauf aktualisiert) — einmalig offline sichern (siehe
+  ["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
+  für WinSCP/scp), dann auf dem Server unter Verschluss lassen.
