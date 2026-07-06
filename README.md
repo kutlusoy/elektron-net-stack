@@ -83,21 +83,102 @@ Nutzt du dabei die interaktive Konsolen-Eingabe (Option 1 oben), brauchst
 du überhaupt keine Config-Datei -- die Werte tippst du direkt im
 Browser-Fenster ein, fertig.
 
-**B) Trotzdem eine `elektron-stack.conf` verwenden, aber nur mit der
-Browser-Console.** Lade dir zusätzlich die Vorlage herunter und fülle sie
-direkt auf dem Server mit einem Terminal-Editor aus:
+**B) `elektron-stack.conf` auf dem Server anlegen -- kein interaktives
+Eintippen bei jedem Lauf.** Damit füllst du alle Werte einmal aus, speicherst
+die Datei dauerhaft auf dem Server, und das Skript liest sie bei jedem
+(erneuten) Lauf automatisch -- keine Rückfragen mehr. Schritt für Schritt:
+
+**1. Browser-Console öffnen** (Hetzner Cloud-Panel -> dein Server ->
+Tab "Console") und einloggen.
+
+**2. Arbeitsverzeichnis anlegen** (beliebiger Ort, hier `/root`):
 
 ```bash
-curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/elektron-stack.conf.example
-cp elektron-stack.conf.example elektron-stack.conf
-nano elektron-stack.conf   # Werte eintragen, dann Strg+O (speichern), Enter, Strg+X (verlassen)
+mkdir -p ~/elektron-net-stack-install
+cd ~/elektron-net-stack-install
 ```
+
+**3. Skript und Config-Vorlage herunterladen** (Repo ist öffentlich, kein
+Login nötig):
+
+```bash
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/elektron-stack.conf.example
+chmod +x install-elektron-stack.sh
+```
+
+**4. Vorlage kopieren** (die `.example`-Datei bleibt als Referenz unverändert
+liegen, du bearbeitest nur die Kopie):
+
+```bash
+cp elektron-stack.conf.example elektron-stack.conf
+```
+
+**5. Config-Datei mit `nano` bearbeiten:**
+
+```bash
+nano elektron-stack.conf
+```
+
+`nano` öffnet die Datei direkt im Terminal. Mit den Pfeiltasten navigieren,
+Werte hinter dem `=` überschreiben. Die wichtigsten Kurzbefehle unten in
+der Fußzeile von `nano` (`^` steht für Strg):
+
+| Taste | Aktion |
+|---|---|
+| `Strg+O`, dann `Enter` | Speichern (write out) |
+| `Strg+X` | Verlassen (nach dem Speichern) |
+| `Strg+K` | Aktuelle Zeile ausschneiden |
+| `Strg+W` | Suchen |
+
+Trag mindestens diese Werte ein (Rest kann auf dem Default bleiben, siehe
+`elektron-stack.conf.example` für alle Felder mit Erklärung):
+
+```ini
+GITHUB_USER=kutlusoy
+SERVER_IP=46.225.163.85
+SERVER_IPV6=2a01:4f8:1c18:ea01::1
+NODE_DOMAIN=node1.elektron-net.org
+POOL_DOMAIN=pplns.elektron-net.org
+FAUCET_DOMAIN=faucet.elektron-net.org
+CADDY_EMAIL=deine@email.de
+FAUCET_HCAPTCHA_SITE=dein-hcaptcha-site-key
+FAUCET_HCAPTCHA_SECRET=dein-hcaptcha-secret-key
+```
+
+Alle Passwort-/Secret-Felder (`JWT_SECRET`, `FAUCET_DB_PASS`,
+`FAUCET_WALLET_PASSPHRASE`, `FAUCET_ADMIN_PASS`, ...) kannst du leer
+lassen -- die generiert das Skript beim Ausführen automatisch sicher.
 
 Für Werte, die du von deinem Windows-Rechner kopierst (z. B. hCaptcha-Keys):
 Die Hetzner-Browser-Console hat oben in der Werkzeugleiste ein
 Tastatur-/Zwischenablage-Symbol ("Paste text" o. ä.) -- damit fügst du
 Text aus der Windows-Zwischenablage direkt in die Console ein, statt lange
 Werte von Hand abzutippen.
+
+**6. Rechte einschränken** (die Datei bekommt gleich reale Zugangsdaten):
+
+```bash
+chmod 600 elektron-stack.conf
+```
+
+**7. Installieren.** Weil `elektron-stack.conf` im selben Verzeichnis wie
+das Skript liegt, wird sie automatisch gefunden -- kein `--config`-Flag
+nötig. Mit `--yes` läuft alles komplett ohne Rückfragen durch:
+
+```bash
+./install-elektron-stack.sh --yes
+```
+
+Fehlt in der Datei noch ein Wert, den das Skript braucht, wird er trotzdem
+mit dem eingebauten Default bzw. per Auto-Generierung befüllt -- `--yes`
+bricht nie ab, es fragt nur nicht nach.
+
+**8. Später etwas ändern?** Einfach `nano elektron-stack.conf` erneut öffnen,
+Wert anpassen, speichern, `./install-elektron-stack.sh --yes` erneut
+ausführen. Das Skript ist idempotent (erkennt bereits vorhandene Repos,
+Wallets usw.) -- ein erneuter Lauf richtet nichts kaputt, du musst dafür
+nie wieder etwas interaktiv eintippen.
 
 **C) Echter Datei-Upload von Windows aus -- braucht SSH/SFTP.** Das geht
 nur, wenn SSH auf dem Server erreichbar ist, nicht über die reine
