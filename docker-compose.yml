@@ -1,0 +1,130 @@
+services:
+
+  # ------------------------------------------------------------------
+  # elektron-net full node -- node1.elektron-net.org
+  # P2P port 8333 is public (this is your seed node). RPC 8332 is only
+  # on the "backend" network, never published to the host.
+  # ------------------------------------------------------------------
+  elektron-net:
+    container_name: elektron-net
+    build:
+      context: ./elektron-net
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "8333:8333"
+      - "[::]:8333:8333"
+    volumes:
+      - "./elektron-net/bitcoin.conf:/data/bitcoin.conf:ro"
+      - "./data/elektron-net:/data"
+
+  # ------------------------------------------------------------------
+  # PPLNS pool backend -- pplns.elektron-net.org (via ppool-ui's proxy)
+  # Stratum 3333 public (miners connect directly). API 3334 stays
+  # internal; only elektron-ppool-ui talks to it.
+  # ------------------------------------------------------------------
+  elektron-ppool:
+    container_name: elektron-ppool
+    build:
+      context: ./elektron-net-ppool
+    restart: unless-stopped
+    depends_on:
+      - elektron-net
+    networks:
+      - backend
+    ports:
+      - "3333:3333"
+      - "[::]:3333:3333"
+    volumes:
+      - "./elektron-net-ppool/.env:/elektron-pool/.env:ro"
+      - "./data/ppool-DB:/elektron-pool/DB"
+
+  # ------------------------------------------------------------------
+  # PPLNS pool UI -- reverse-proxied by Caddy at pplns.elektron-net.org.
+  # Not published to the host directly; Caddy reaches it on "web".
+  # ------------------------------------------------------------------
+  elektron-ppool-ui:
+    container_name: elektron-ppool-ui
+    build:
+      context: ./elektron-net-ppool-ui
+    restart: unless-stopped
+    depends_on:
+      - elektron-ppool
+    networks:
+      - backend
+      - web
+    environment:
+      - API_UPSTREAM=elektron-ppool:3334
+
+  # ------------------------------------------------------------------
+  # Faucet -- reverse-proxied by Caddy at faucet.elektron-net.org
+  # ------------------------------------------------------------------
+  elektron-faucet-db:
+    container_name: elektron-faucet-db
+    image: mariadb:11.4
+    restart: unless-stopped
+    env_file: ./elektron-net-faucet/.env
+    environment:
+      MYSQL_DATABASE: ${FAUCET_DB_NAME}
+      MYSQL_USER: ${FAUCET_DB_USER}
+      MYSQL_PASSWORD: ${FAUCET_DB_PASS}
+      MYSQL_ROOT_PASSWORD: ${FAUCET_DB_ROOT_PASS}
+    networks:
+      - backend
+    volumes:
+      - "./data/faucet-db:/var/lib/mysql"
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  elektron-faucet-app:
+    container_name: elektron-faucet-app
+    build:
+      context: ./elektron-net-faucet
+    restart: unless-stopped
+    depends_on:
+      elektron-faucet-db:
+        condition: service_healthy
+      elektron-net:
+        condition: service_started
+    env_file: ./elektron-net-faucet/.env
+    environment:
+      FAUCET_CONFIG: /config/config.php
+    networks:
+      - backend
+      - web
+    volumes:
+      - "./data/faucet-config:/config"
+
+  # ------------------------------------------------------------------
+  # Caddy -- single public entrypoint, automatic HTTPS for both
+  # web-facing subdomains.
+  # ------------------------------------------------------------------
+  caddy:
+    container_name: elektron-caddy
+    image: caddy:2-alpine
+    restart: unless-stopped
+    networks:
+      - web
+    ports:
+      - "80:80"
+      - "443:443"
+      - "[::]:80:80"
+      - "[::]:443:443"
+    volumes:
+      - "./caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
+      - "caddy_data:/data"
+      - "caddy_config:/config"
+
+networks:
+  # Node RPC, pool backend, faucet DB/app -- never exposed to the host.
+  backend:
+  # Only what Caddy needs to reach: the two web UIs.
+  web:
+
+volumes:
+  caddy_data:
+  caddy_config:

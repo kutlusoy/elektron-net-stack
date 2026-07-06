@@ -1,0 +1,15 @@
+# node1.elektron-net.org bekommt bewusst KEINEN Block hier -- das ist der
+# reine P2P-Seed-Node (Port 8333, direkt vom Host published), kein HTTP-Dienst.
+# Die DNS-A-Record zeigt trotzdem auf diesen Server, damit andere Nodes
+# "node1.elektron-net.org" als addnode/seednode verwenden können.
+
+pplns.elektron-net.org {
+	# elektron-ppool-ui ist der Compose-Servicename; das Container-eigene
+	# Caddy im UI-Image hört intern auf Port 80 und proxied /api/* bereits
+	# selbst zum ppool-Backend.
+	reverse_proxy elektron-ppool-ui:80
+}
+
+faucet.elektron-net.org {
+	reverse_proxy elektron-faucet-app:80
+}
