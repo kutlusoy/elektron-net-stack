@@ -66,6 +66,12 @@ FIREWALL_AUTO_CONFIGURE=true                  # true = run ufw commands automati
 
 # --- Pool (elektron-net-ppool) ---
 POOL_WALLET_NAME="pool"                       # wallet name on the node for pool payouts
+# leave empty to auto-generate a strong passphrase (printed at the end -- save it!):
+# The pool wallet gets encrypted with this just like the faucet wallet --
+# ppool unlocks it automatically for WALLET_UNLOCK_SECONDS on every payout
+# run, then re-locks it immediately (see wallet-rpc.service.ts).
+POOL_WALLET_PASSPHRASE=""
+WALLET_UNLOCK_SECONDS="60"
 POOL_IDENTIFIER="Elektron-PPLNS-Pool"
 POOL_FEE_PERCENT="1.0"
 PPLNS_WINDOW_MINUTES="90"
@@ -106,6 +112,7 @@ FAUCET_DEFAULT_LANG="de"
 # (so an uploaded file can only ever set plain values, never run code).
 CONFIG_VARS="STACK_DIR GITHUB_USER SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
 FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE POOL_WALLET_NAME
+POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
 POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
 API_PORT JWT_SECRET FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
@@ -266,6 +273,7 @@ reuse_or_generate() {
 }
 
 reuse_or_generate JWT_SECRET              "$PPOOL_ENV_PATH"  JWT_SECRET              rand_hex 32
+reuse_or_generate POOL_WALLET_PASSPHRASE   "$PPOOL_ENV_PATH"  WALLET_PASSPHRASE       rand_base64 32
 reuse_or_generate FAUCET_WALLET_PASSPHRASE "$FAUCET_ENV_PATH" FAUCET_WALLET_PASS      rand_base64 32
 reuse_or_generate FAUCET_DB_PASS           "$FAUCET_ENV_PATH" FAUCET_DB_PASS          rand_base64 24
 reuse_or_generate FAUCET_DB_ROOT_PASS      "$FAUCET_ENV_PATH" FAUCET_DB_ROOT_PASS     rand_base64 24
@@ -642,6 +650,12 @@ PAYOUT_DRY_RUN=${PAYOUT_DRY_RUN}
 
 WALLET_RPC_WALLET_NAME=${POOL_WALLET_NAME}
 
+# Pool-Wallet ist verschlüsselt (siehe README "vor echten Auszahlungen
+# empfohlen") -- ppool entsperrt sie hiermit automatisch für jede
+# Auszahlung und sperrt sie danach sofort wieder (wallet-rpc.service.ts).
+WALLET_PASSPHRASE=${POOL_WALLET_PASSPHRASE}
+WALLET_UNLOCK_SECONDS=${WALLET_UNLOCK_SECONDS}
+
 JWT_SECRET=${JWT_SECRET}
 ENV_EOF
 
@@ -738,22 +752,34 @@ else
 fi
 sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
 
+# Verschlüsseln, falls noch nicht verschlüsselt -- empfohlen bevor echte
+# Auszahlungen laufen (siehe ppool-.env-Kommentar zu WALLET_PASSPHRASE):
+# ohne das schlägt jede echte Auszahlung mit RPC-Fehler -13 fehl, sobald
+# PAYOUT_DRY_RUN=false gesetzt wird. ppool entsperrt die Wallet dafür
+# automatisch für WALLET_UNLOCK_SECONDS vor jedem sendmany und sperrt sie
+# danach sofort wieder (encryptwallet stoppt den Node-Prozess kurz -- das
+# ist normales Bitcoin-Core-Verhalten, der Container kommt dank
+# restart:unless-stopped von selbst wieder hoch).
+encrypt_wallet_if_missing() {
+  local wname="$1" passphrase="$2"
+  local info
+  info="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" getwalletinfo)"
+  if echo "$info" | grep -q '"unlocked_until"'; then
+    log "Wallet '$wname' ist bereits verschlüsselt, überspringe encryptwallet."
+  else
+    log "Verschlüssele Wallet '$wname' (Node startet dabei kurz neu) ..."
+    docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" encryptwallet "$passphrase" || true
+    sleep 8
+    wait_for_rpc
+    wallet_loaded "$wname" || docker compose exec -T elektron-net elektron-cli loadwallet "$wname" >/dev/null
+  fi
+}
+
+encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
+
 log "Lege Faucet-Wallet an ..."
 create_wallet_if_missing "$FAUCET_WALLET_NAME"
-
-# Verschlüsseln, falls noch nicht verschlüsselt (encryptwallet stoppt den
-# Node-Prozess -- das ist normales Bitcoin-Core-Verhalten, der Container
-# kommt dank restart:unless-stopped von selbst wieder hoch).
-WALLET_INFO="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" getwalletinfo)"
-if echo "$WALLET_INFO" | grep -q '"unlocked_until"'; then
-  log "Faucet-Wallet ist bereits verschlüsselt, überspringe encryptwallet."
-else
-  log "Verschlüssele Faucet-Wallet (Node startet dabei kurz neu) ..."
-  docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" encryptwallet "$FAUCET_WALLET_PASSPHRASE" || true
-  sleep 8
-  wait_for_rpc
-  wallet_loaded "$FAUCET_WALLET_NAME" || docker compose exec -T elektron-net elektron-cli loadwallet "$FAUCET_WALLET_NAME" >/dev/null
-fi
+encrypt_wallet_if_missing "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE"
 
 if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
   FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
@@ -796,16 +822,23 @@ backup_wallet_privkeys() {
 POOL_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/pool-wallet-privkeys-backup.txt"
 FAUCET_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/faucet-wallet-privkeys-backup.txt"
 
-backup_wallet_privkeys "$POOL_WALLET_NAME" "$POOL_WALLET_DUMP_HOST" "/data/pool-wallet-privkeys-backup.txt"
+# Beide Wallets sind mittlerweile verschlüsselt (siehe 10.) -- also für
+# beide erst kurz entsperren, exportieren, danach sofort wieder sperren.
+export_wallet_backup() {
+  local wname="$1" passphrase="$2" host_path="$3" container_path="$4"
+  if [ -f "$host_path" ]; then
+    log "Wallet-Backup für '$wname' existiert bereits, überspringe: ${host_path}"
+    return
+  fi
+  log "Entsperre Wallet '$wname' kurz für den Private-Key-Export ..."
+  docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" walletpassphrase "$passphrase" 60 >/dev/null 2>&1 \
+    || warn "Konnte Wallet '$wname' nicht entsperren -- Private-Key-Export wird wahrscheinlich fehlschlagen, Passphrase prüfen."
+  backup_wallet_privkeys "$wname" "$host_path" "$container_path"
+  docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
+}
 
-if [ -f "$FAUCET_WALLET_DUMP_HOST" ]; then
-  log "Wallet-Backup für '$FAUCET_WALLET_NAME' existiert bereits, überspringe."
-else
-  log "Entsperre Faucet-Wallet kurz für den Private-Key-Export ..."
-  docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" walletpassphrase "$FAUCET_WALLET_PASSPHRASE" 60 >/dev/null 2>&1 || warn "Konnte Faucet-Wallet nicht entsperren -- Private-Key-Export wird wahrscheinlich fehlschlagen, Passphrase in elektron-net-faucet/.env prüfen."
-  backup_wallet_privkeys "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
-  docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" walletlock >/dev/null 2>&1 || true
-fi
+export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WALLET_DUMP_HOST"   "/data/pool-wallet-privkeys-backup.txt"
+export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
 
 # ============================================================================
 # 11. Rest des Stacks hochfahren
@@ -912,6 +945,7 @@ cat <<SUMMARY
    RPC-Benutzer (Node):          ${RPC_USER}
    RPC-Passwort (Node):          ${RPC_PASSWORD}
    Pool JWT_SECRET:              ${JWT_SECRET}
+   Pool-Wallet-Passphrase:       ${POOL_WALLET_PASSPHRASE}
    Faucet-DB-Passwort:           ${FAUCET_DB_PASS}
    Faucet-DB-Root-Passwort:      ${FAUCET_DB_ROOT_PASS}
    Faucet-Admin-Passwort:        ${FAUCET_ADMIN_PASS}
@@ -976,11 +1010,20 @@ cat <<SUMMARY
    ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth-Hash, nicht das Klartext-Passwort)
  (alle chmod 600, nicht committen.)
 
- WICHTIG: encryptwallet ist ein Einwegvorgang -- die
- Faucet-Wallet-Passphrase oben steht NUR in dieser Datei und in
- ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS). Es gibt
- keine andere Kopie, auch nicht auf der Blockchain. Verlierst du beide
- Dateien, ist das Faucet-Wallet-Guthaben nicht mehr ausgebbar.
+ WICHTIG: encryptwallet ist ein Einwegvorgang -- Pool- UND Faucet-Wallet
+ sind mittlerweile beide verschlüsselt. Die Passphrasen oben stehen NUR in
+ dieser Datei und in ${STACK_DIR}/elektron-net-ppool/.env (Feld
+ WALLET_PASSPHRASE) bzw. ${STACK_DIR}/elektron-net-faucet/.env (Feld
+ FAUCET_WALLET_PASS) -- plus im vollständigen Private-Key-Export weiter
+ oben. Es gibt keine andere Kopie, auch nicht auf der Blockchain. Verlierst
+ du alle diese Dateien, ist das jeweilige Wallet-Guthaben nicht mehr
+ ausgebbar.
+
+ Weiterer wichtiger Ort: der Faucet-App generiert beim allerersten Start
+ selbst einen Verschlüsselungs-Key für Daten "at rest" (FAUCET_APP_KEY) und
+ schreibt ihn NUR nach ${STACK_DIR}/data/faucet-config/config.php -- steht
+ in keiner .env und wird von diesem Skript nicht verwaltet, gehört aber zum
+ selben Bedrohungsmodell wie alles andere hier (mit sichern, chmod 600).
 
  ----------------------------------------------------------------------------
  EXTERNE / SELBST ERZEUGTE WALLETS
@@ -995,3 +1038,9 @@ ${EXTERNAL_WALLETS_BLOCK}
 SUMMARY
 } | tee "$SUMMARY_FILE"
 chmod 600 "$SUMMARY_FILE"
+# Falls die Faucet-App ihren FAUCET_APP_KEY bereits geschrieben hat (siehe
+# Hinweis oben) -- nur ein Best-effort-chmod, kein Fehler falls noch nicht
+# vorhanden (der Container kann noch ein paar Sekunden brauchen).
+if [ -f "${STACK_DIR}/data/faucet-config/config.php" ]; then
+  chmod 600 "${STACK_DIR}/data/faucet-config/config.php" 2>/dev/null || true
+fi

@@ -22,6 +22,16 @@ und eine Befehlsreferenz -- wird bei jedem (Re-)Lauf des Skripts neu
 geschrieben, du musst also nichts bei der einmaligen Terminal-Ausgabe
 abschreiben.
 
+**Beide Wallets (Pool und Faucet) werden verschlüsselt.** Die
+Pool-Wallet-Passphrase (`WALLET_PASSPHRASE` in `elektron-net-ppool/.env`)
+wird -- genau wie die Faucet-Passphrase -- automatisch generiert, sofern
+nicht selbst vorgegeben; `ppool` entsperrt die Wallet damit automatisch nur
+für `WALLET_UNLOCK_SECONDS` bei jeder Auszahlung und sperrt sie danach
+sofort wieder. Ohne das schlägt jede echte Auszahlung mit RPC-Fehler `-13`
+fehl, sobald `PAYOUT_DRY_RUN=false` gesetzt wird -- das war vorher eine
+Lücke in diesem Skript (die Pool-Wallet blieb unverschlüsselt), jetzt
+konsistent mit der Faucet-Wallet gelöst.
+
 Für ein **wirklich vollständiges Backup** legt das Skript zusätzlich an
 (einmalig, beim ersten Anlegen der jeweiligen Wallet) -- jede Wallet bleibt
 dabei bewusst ihre eigene, separat schützbare Datei statt alles in einer
@@ -40,6 +50,13 @@ einzigen riesigen Datei zu bündeln:
   dorthin bekommst du sie z. B. über `nano` + die Paste-Funktion der
   Hetzner-Console (siehe "Dateien auf den Server bringen") oder per
   SCP/WinSCP. Das Skript setzt automatisch `chmod 600` auf jede Datei dort.
+
+Noch ein Ort, der nicht von diesem Skript verwaltet wird, aber genauso
+sensibel ist: die Faucet-App generiert beim allerersten Start selbst einen
+Verschlüsselungs-Key ("Secrets at rest", `FAUCET_APP_KEY`) und schreibt ihn
+direkt nach `$STACK_DIR/data/faucet-config/config.php` -- steht in keiner
+`.env`, wird aber genauso mitgesichert, wenn du `data/` in dein Backup
+einschließt.
 
 `ZUGANGSDATEN.txt` selbst dupliziert diese Wallet-Dateien **nicht** --
 es listet nur Dateiname und Pfad als Verweis auf, damit jedes
