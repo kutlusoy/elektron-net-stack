@@ -263,6 +263,72 @@ prüfen, ob Port 22 für dein Netzwerk erlaubt ist -- Standard-Images haben
 den SSH-Server bereits vorinstalliert und laufend, nur eine zu strenge
 Cloud-Firewall blockiert dann typischerweise den Zugriff.
 
+## Werte vorab lokal ausfüllen und per SFTP hochladen
+
+Hast du SFTP/SCP-Zugriff (siehe oben), kannst du alles bequem lokal auf
+deinem Rechner vorbereiten und dann fertig ausgefüllt hochladen, statt auf
+dem Server zu tippen. Wichtig ist dabei, **welche Datei** du dafür nimmst:
+
+**Die richtige Datei: `elektron-stack.conf`.** Das ist die einzige Datei,
+die dafür gedacht ist, dass du sie vorab ausfüllst und die Werte darin
+dauerhaft übernommen werden:
+
+1. Lokal `elektron-stack.conf.example` nach `elektron-stack.conf` kopieren
+   und ausfüllen (alle Felder siehe unten und in der Datei selbst
+   kommentiert).
+2. Per SFTP/WinSCP/`scp` **in denselben Ordner wie `install-elektron-stack.sh`**
+   hochladen (z. B. `/opt/elektron-net-stack/elektron-stack.conf`, falls du
+   das Skript dort ablegst -- der genaue Ordner ist egal, Hauptsache beide
+   Dateien liegen zusammen).
+3. `./install-elektron-stack.sh --yes` -- die Datei wird automatisch
+   gefunden, alle Werte werden 1:1 übernommen, alles leer gelassene wird
+   automatisch generiert. Kein Tippen auf dem Server mehr nötig.
+
+**Nicht die richtige Wahl: die rohen `.env`-Dateien/`bitcoin.conf` selbst
+vorab hochladen und erwarten, dass sie unverändert bleiben.** Das Skript
+schreibt `elektron-net/bitcoin.conf`, `elektron-net-ppool/.env` und
+`elektron-net-faucet/.env` bei **jedem** Lauf komplett neu (aus seinem
+eigenen Template) -- eine vorab hochgeladene, handgeschriebene Version
+dieser Dateien würde beim ersten Lauf größtenteils überschrieben. Die
+einzige Ausnahme: ein paar konkrete Secret-Felder (`JWT_SECRET`,
+`WALLET_PASSPHRASE`, `FAUCET_WALLET_PASS`, `FAUCET_DB_PASS`,
+`FAUCET_DB_ROOT_PASS`, `FAUCET_ADMIN_PASS`, das RPC-Passwort über
+`bitcoin.conf`s `rpcauth`-Zeile) werden erkannt und unverändert
+übernommen, wenn sie in einer bereits am Zielort (`$STACK_DIR/...`)
+liegenden Datei stehen -- das ist genau der Mechanismus, der Reruns
+idempotent macht (siehe "Stack aktualisieren" unten), aber kein
+allgemeiner Weg, um beliebige Inhalte vorzugeben. **Für alles, was du
+selbst bestimmen willst, gehört der Wert nach `elektron-stack.conf`, nicht
+direkt in die Zieldatei.**
+
+Was du in `elektron-stack.conf` konkret vorab festlegen kannst -- die
+komplette Liste steht in `elektron-stack.conf.example` mit Kommentaren,
+kurz zusammengefasst:
+
+| Bereich | Felder |
+|---|---|
+| Server/Domains | `GITHUB_USER`, `SERVER_IP`, `SERVER_IPV6`, `NODE_DOMAIN`, `POOL_DOMAIN`, `FAUCET_DOMAIN`, `CADDY_EMAIL` |
+| Node/Firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
+| Pool-Verhalten | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
+| Pool-Wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (leer = auto), `WALLET_UNLOCK_SECONDS` |
+| Pool-Benachrichtigungen (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
+| Faucet-Wallet/DB | `FAUCET_WALLET_NAME`, `FAUCET_WALLET_PASSPHRASE` (leer = auto), `FAUCET_DB_NAME`, `FAUCET_DB_USER`, `FAUCET_DB_PASS`/`FAUCET_DB_ROOT_PASS` (leer = auto) |
+| Faucet-Login | `FAUCET_ADMIN_USER`, `FAUCET_ADMIN_PASS` (leer = auto) |
+| Faucet-Business | `FAUCET_HCAPTCHA_SITE`/`_SECRET`, `FAUCET_TITLE`, `FAUCET_MESSAGE`, `FAUCET_AMOUNT_ELEK`, `FAUCET_DAILY_BUDGET`, `FAUCET_HOURLY_BUDGET`, `FAUCET_PER_ADDR_COOLDOWN_H`, `FAUCET_PER_IP_COOLDOWN_H`, `FAUCET_DEFAULT_LANG`, `FAUCET_EXPLORER_URL` |
+| Secrets (immer auto, wenn leer) | `JWT_SECRET`, RPC-Passwort (kein Feld dafür -- immer generiert) |
+
+Felder, die das Skript automatisch nach der Wallet-Erstellung einträgt
+(`POOL_WALLET_ADDRESS`, `FAUCET_SENDER_ADDR`), gehören **nicht** in
+`elektron-stack.conf` -- die kannst du gar nicht vorgeben, die entstehen
+erst live beim Lauf.
+
+**Zu Telegram/Discord:** Beide sind rein optional (Miner-Benachrichtigungen
+im Pool). Leer lassen deaktiviert sie sauber -- die ppool-Anwendung prüft
+selbst, ob alle nötigen Felder gesetzt sind, und schaltet sich sonst ab,
+ohne Fehler zu werfen. Für Discord müssen alle vier Felder zusammen gesetzt
+sein (Token, Client-ID, Guild-ID, Channel-ID), sonst bleibt die Integration
+inaktiv.
+
 ## Stack aktualisieren
 
 Drei unterschiedliche Situationen -- jede mit ihrem eigenen, passenden Weg.
@@ -372,6 +438,93 @@ Kurzer Hinweis: Der `elektron-net`-Container neu zu starten unterbricht kurz
 den P2P-Betrieb (Sekunden bis wenige Minuten, bis der Node wieder
 synchron ist) -- für den Node am besten eine ruhige Zeit wählen, Pool und
 Faucet sind davon unabhängig neu startbar.
+
+## Externe Wallets importieren (WIF/Private Key)
+
+Hast du eine Adresse offline erzeugt (z. B. mit
+`elektron-net/mining/generate_address.py`, wie deine Datei in
+`external-wallets/`) und willst den Private Key irgendwo nutzbar machen --
+zum Ausgeben, zum Beobachten, oder um sie einer GUI-Wallet hinzuzufügen --
+**wichtig:** `importprivkey` und `dumpwallet` gibt es in diesem Fork nicht
+mehr (`error code: -32601, Method not found`, live getestet). Er nutzt wie
+modernes Bitcoin Core ausschließlich Descriptor-Wallets; der Ersatz ist
+`importdescriptors`. Drei Wege, je nachdem wo du den Import machen willst:
+
+### A) Auf dem Hetzner-Server, in den laufenden Node (CLI)
+
+Nutzt den ohnehin laufenden `elektron-net`-Container aus diesem Stack --
+kein zusätzliches Programm nötig:
+
+```bash
+cd /opt/elektron-net-stack
+
+# 1. Eigene Wallet dafür anlegen (getrennt von pool/faucet, ohne
+#    automatisch generierte Keys)
+docker compose exec elektron-net elektron-cli createwallet "prepaid" false true
+
+# 2. Checksum für den Descriptor holen -- combo(...) leitet daraus alle drei
+#    Standard-Adressformate ab (P2PKH, P2SH-SegWit, P2WPKH/bech32), nicht
+#    nur eins:
+docker compose exec elektron-net elektron-cli getdescriptorinfo "combo(<WIF>)"
+# -> Feld "checksum" aus der Antwort kopieren, z. B. "7xr75u5v"
+
+# 3. Mit WIF + Checksum importieren
+docker compose exec elektron-net elektron-cli -rpcwallet=prepaid importdescriptors \
+  '[{"desc": "combo(<WIF>)#<checksum>", "timestamp": 0, "label": "prepaid-import"}]'
+```
+
+`timestamp`: **`0`** durchsucht die komplette Chain nach bereits
+vorhandenen UTXOs für diese Adresse -- nötig, wenn schon vor dem Import
+ELEK draufgeschickt wurde (kann laut Bitcoin-Core-Doku bei einer sehr
+alten Adresse über eine Stunde dauern). **`"now"`** überspringt das
+Scannen komplett, nur sinnvoll bei einem brandneuen, nie benutzten Key.
+
+Danach normal nutzbar: `docker compose exec elektron-net elektron-cli
+-rpcwallet=prepaid getbalance`, `sendtoaddress`, `listunspent`, usw.
+
+### B) Lokal auf Windows -- offizielle GUI-Wallet (elektron-qt)
+
+Für den Fall, dass du den Key nicht auf dem Server, sondern lokal auf
+deinem eigenen Windows-Rechner verwalten willst, ohne selbst etwas zu
+kompilieren:
+
+1. Offizielles Release herunterladen: [github.com/kutlusoy/elektron-net/releases](https://github.com/kutlusoy/elektron-net/releases)
+   -- entweder das portable ZIP oder den Setup-Installer (`elektron-net-windows-*_portable.zip`
+   bzw. `..._setup.exe`).
+2. `elektron-qt.exe` starten (das ist die GUI, Pendant zu Bitcoin-Qt --
+   läuft als eigener, vollständiger Node, synchronisiert selbst mit dem
+   Elektron-Net-Netzwerk).
+3. **Es gibt keinen eigenen "Private Key importieren"-Dialog in der GUI**
+   -- das war auch in Bitcoin-Qt nie der Fall. Stattdessen: Menü
+   **Hilfe -> Debug-Fenster -> Konsole** (bzw. *Help -> Debug window ->
+   Console* im englischen Original) öffnen und dort exakt dieselben drei
+   Befehle wie unter A) eintippen (ohne das `docker compose exec
+   elektron-net`-Präfix -- die Konsole spricht schon direkt mit dem
+   lokalen Node):
+   ```
+   createwallet "prepaid" false true
+   getdescriptorinfo "combo(<WIF>)"
+   importdescriptors [{"desc": "combo(<WIF>)#<checksum>", "timestamp": 0, "label": "prepaid-import"}]
+   ```
+4. Guthaben/Adressen erscheinen danach im normalen Wallet-Tab der GUI.
+
+Diese lokale GUI-Wallet ist komplett unabhängig vom Hetzner-Stack -- sie
+synchronisiert ihre eigene Kopie der Chain und hat nichts mit den
+Pool-/Faucet-Wallets auf dem Server zu tun.
+
+### C) Andere Methoden (kurz)
+
+- **Reines `elektron-cli` ohne GUI**, z. B. auf einem zweiten Server oder
+  lokal: dieselben drei Befehle aus A), nur direkt gegen den lokal
+  laufenden `elektrond` statt über `docker compose exec`.
+- **Nur beobachten, nicht ausgeben können** (watch-only, kein Private Key
+  in der Zielwallet): `createwallet "beobachtung" true` (der zweite
+  Parameter -- `disable_private_keys` -- macht sie watch-only), dann
+  `importdescriptors` mit einem Descriptor **ohne** Private Key (nur die
+  Adresse/den Public Key), z. B. `addr(<Adresse>)` statt `combo(<WIF>)`.
+- Alle Wege erzeugen am Ende dieselben Adressen aus demselben Key -- welche
+  Methode du nimmst, hängt nur davon ab, wo du den Key benutzen willst,
+  nicht von einer technischen Einschränkung.
 
 ## 0. Voraussetzung
 

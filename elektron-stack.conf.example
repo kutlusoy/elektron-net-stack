@@ -55,6 +55,18 @@ API_PORT=3334
 # leer lassen = automatisch generieren (openssl rand -hex 32):
 JWT_SECRET=
 
+# Optional -- Telegram-Bot für Miner-Benachrichtigungen (/subscribe
+# <address>). Beide leer lassen deaktiviert das Feature komplett.
+# TELEGRAM_BOT_USERNAME ist rein kosmetisch (nur der angezeigte Link).
+TELEGRAM_BOT_TOKEN=
+TELEGRAM_BOT_USERNAME=
+# Optional -- Discord-Bot. Alle vier müssen zusammen gesetzt sein, sonst
+# bleibt die Integration deaktiviert.
+DISCORD_BOT_TOKEN=
+DISCORD_BOT_CLIENTID=
+DISCORD_BOT_GUILD_ID=
+DISCORD_BOT_CHANNEL_ID=
+
 # --- Faucet (elektron-net-faucet) ---
 FAUCET_WALLET_NAME=faucet
 # leer lassen = automatisch generieren:
@@ -78,3 +90,6 @@ FAUCET_HOURLY_BUDGET=0.1
 FAUCET_PER_ADDR_COOLDOWN_H=24
 FAUCET_PER_IP_COOLDOWN_H=1
 FAUCET_DEFAULT_LANG=de
+# Optional -- Block-Explorer-Link, der nach einem erfolgreichen Claim
+# angezeigt wird (z. B. https://explorer.example.com):
+FAUCET_EXPLORER_URL=
