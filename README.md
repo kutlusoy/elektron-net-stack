@@ -263,6 +263,72 @@ prüfen, ob Port 22 für dein Netzwerk erlaubt ist -- Standard-Images haben
 den SSH-Server bereits vorinstalliert und laufend, nur eine zu strenge
 Cloud-Firewall blockiert dann typischerweise den Zugriff.
 
+## Werte vorab lokal ausfüllen und per SFTP hochladen
+
+Hast du SFTP/SCP-Zugriff (siehe oben), kannst du alles bequem lokal auf
+deinem Rechner vorbereiten und dann fertig ausgefüllt hochladen, statt auf
+dem Server zu tippen. Wichtig ist dabei, **welche Datei** du dafür nimmst:
+
+**Die richtige Datei: `elektron-stack.conf`.** Das ist die einzige Datei,
+die dafür gedacht ist, dass du sie vorab ausfüllst und die Werte darin
+dauerhaft übernommen werden:
+
+1. Lokal `elektron-stack.conf.example` nach `elektron-stack.conf` kopieren
+   und ausfüllen (alle Felder siehe unten und in der Datei selbst
+   kommentiert).
+2. Per SFTP/WinSCP/`scp` **in denselben Ordner wie `install-elektron-stack.sh`**
+   hochladen (z. B. `/opt/elektron-net-stack/elektron-stack.conf`, falls du
+   das Skript dort ablegst -- der genaue Ordner ist egal, Hauptsache beide
+   Dateien liegen zusammen).
+3. `./install-elektron-stack.sh --yes` -- die Datei wird automatisch
+   gefunden, alle Werte werden 1:1 übernommen, alles leer gelassene wird
+   automatisch generiert. Kein Tippen auf dem Server mehr nötig.
+
+**Nicht die richtige Wahl: die rohen `.env`-Dateien/`bitcoin.conf` selbst
+vorab hochladen und erwarten, dass sie unverändert bleiben.** Das Skript
+schreibt `elektron-net/bitcoin.conf`, `elektron-net-ppool/.env` und
+`elektron-net-faucet/.env` bei **jedem** Lauf komplett neu (aus seinem
+eigenen Template) -- eine vorab hochgeladene, handgeschriebene Version
+dieser Dateien würde beim ersten Lauf größtenteils überschrieben. Die
+einzige Ausnahme: ein paar konkrete Secret-Felder (`JWT_SECRET`,
+`WALLET_PASSPHRASE`, `FAUCET_WALLET_PASS`, `FAUCET_DB_PASS`,
+`FAUCET_DB_ROOT_PASS`, `FAUCET_ADMIN_PASS`, das RPC-Passwort über
+`bitcoin.conf`s `rpcauth`-Zeile) werden erkannt und unverändert
+übernommen, wenn sie in einer bereits am Zielort (`$STACK_DIR/...`)
+liegenden Datei stehen -- das ist genau der Mechanismus, der Reruns
+idempotent macht (siehe "Stack aktualisieren" unten), aber kein
+allgemeiner Weg, um beliebige Inhalte vorzugeben. **Für alles, was du
+selbst bestimmen willst, gehört der Wert nach `elektron-stack.conf`, nicht
+direkt in die Zieldatei.**
+
+Was du in `elektron-stack.conf` konkret vorab festlegen kannst -- die
+komplette Liste steht in `elektron-stack.conf.example` mit Kommentaren,
+kurz zusammengefasst:
+
+| Bereich | Felder |
+|---|---|
+| Server/Domains | `GITHUB_USER`, `SERVER_IP`, `SERVER_IPV6`, `NODE_DOMAIN`, `POOL_DOMAIN`, `FAUCET_DOMAIN`, `CADDY_EMAIL` |
+| Node/Firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
+| Pool-Verhalten | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
+| Pool-Wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (leer = auto), `WALLET_UNLOCK_SECONDS` |
+| Pool-Benachrichtigungen (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
+| Faucet-Wallet/DB | `FAUCET_WALLET_NAME`, `FAUCET_WALLET_PASSPHRASE` (leer = auto), `FAUCET_DB_NAME`, `FAUCET_DB_USER`, `FAUCET_DB_PASS`/`FAUCET_DB_ROOT_PASS` (leer = auto) |
+| Faucet-Login | `FAUCET_ADMIN_USER`, `FAUCET_ADMIN_PASS` (leer = auto) |
+| Faucet-Business | `FAUCET_HCAPTCHA_SITE`/`_SECRET`, `FAUCET_TITLE`, `FAUCET_MESSAGE`, `FAUCET_AMOUNT_ELEK`, `FAUCET_DAILY_BUDGET`, `FAUCET_HOURLY_BUDGET`, `FAUCET_PER_ADDR_COOLDOWN_H`, `FAUCET_PER_IP_COOLDOWN_H`, `FAUCET_DEFAULT_LANG`, `FAUCET_EXPLORER_URL` |
+| Secrets (immer auto, wenn leer) | `JWT_SECRET`, RPC-Passwort (kein Feld dafür -- immer generiert) |
+
+Felder, die das Skript automatisch nach der Wallet-Erstellung einträgt
+(`POOL_WALLET_ADDRESS`, `FAUCET_SENDER_ADDR`), gehören **nicht** in
+`elektron-stack.conf` -- die kannst du gar nicht vorgeben, die entstehen
+erst live beim Lauf.
+
+**Zu Telegram/Discord:** Beide sind rein optional (Miner-Benachrichtigungen
+im Pool). Leer lassen deaktiviert sie sauber -- die ppool-Anwendung prüft
+selbst, ob alle nötigen Felder gesetzt sind, und schaltet sich sonst ab,
+ohne Fehler zu werfen. Für Discord müssen alle vier Felder zusammen gesetzt
+sein (Token, Client-ID, Guild-ID, Channel-ID), sonst bleibt die Integration
+inaktiv.
+
 ## Stack aktualisieren
 
 Drei unterschiedliche Situationen -- jede mit ihrem eigenen, passenden Weg.

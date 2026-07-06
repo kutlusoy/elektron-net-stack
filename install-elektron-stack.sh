@@ -84,6 +84,18 @@ API_PORT="3334"
 # leave empty to auto-generate a random 32-byte hex secret:
 JWT_SECRET=""
 
+# Optional -- Telegram bot for miner payout notifications (/subscribe
+# <address>). Leave both empty to disable; TELEGRAM_BOT_USERNAME is purely
+# cosmetic (shown as a link), has no effect on which bot receives traffic.
+TELEGRAM_BOT_TOKEN=""
+TELEGRAM_BOT_USERNAME=""
+# Optional -- Discord bot. All four must be set together, otherwise the
+# integration stays disabled (see discord.service.ts).
+DISCORD_BOT_TOKEN=""
+DISCORD_BOT_CLIENTID=""
+DISCORD_BOT_GUILD_ID=""
+DISCORD_BOT_CHANNEL_ID=""
+
 # --- Faucet (elektron-net-faucet) ---
 FAUCET_WALLET_NAME="faucet"                   # wallet name on the node for faucet payouts
 # leave empty to auto-generate a strong passphrase (printed at the end -- save it!):
@@ -106,6 +118,7 @@ FAUCET_HOURLY_BUDGET="0.1"
 FAUCET_PER_ADDR_COOLDOWN_H="24"
 FAUCET_PER_IP_COOLDOWN_H="1"
 FAUCET_DEFAULT_LANG="de"
+FAUCET_EXPLORER_URL=""                        # optional, shown as a link after a successful claim
 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
@@ -115,11 +128,13 @@ FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
 POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
-API_PORT JWT_SECRET FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
+API_PORT JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_BOT_USERNAME DISCORD_BOT_TOKEN
+DISCORD_BOT_CLIENTID DISCORD_BOT_GUILD_ID DISCORD_BOT_CHANNEL_ID
+FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
 FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN_PASS
 FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
-FAUCET_DEFAULT_LANG"
+FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -638,6 +653,14 @@ HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
 HOBBY_MINER_DIFFICULTY=0.001
 DIAGNOSTIC_SHARE_LOGGING_MODES=
 
+# Optional -- leer lassen deaktiviert die jeweilige Integration.
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}
+DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+DISCORD_BOT_CLIENTID=${DISCORD_BOT_CLIENTID}
+DISCORD_BOT_GUILD_ID=${DISCORD_BOT_GUILD_ID}
+DISCORD_BOT_CHANNEL_ID=${DISCORD_BOT_CHANNEL_ID}
+
 # wird nach der Wallet-Erstellung automatisch von diesem Skript eingetragen:
 POOL_WALLET_ADDRESS=
 
@@ -697,7 +720,7 @@ FAUCET_PER_ADDR_COOLDOWN_H=${FAUCET_PER_ADDR_COOLDOWN_H}
 FAUCET_PER_IP_COOLDOWN_H=${FAUCET_PER_IP_COOLDOWN_H}
 # wird nach der Wallet-Erstellung automatisch von diesem Skript eingetragen:
 FAUCET_SENDER_ADDR=
-FAUCET_EXPLORER_URL=
+FAUCET_EXPLORER_URL=${FAUCET_EXPLORER_URL}
 FAUCET_DEFAULT_LANG=${FAUCET_DEFAULT_LANG}
 ENV_EOF
 
