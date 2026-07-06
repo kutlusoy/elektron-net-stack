@@ -15,7 +15,9 @@ generiert, sofern du sie nicht selbst vorgibst. Manuell bleiben nur die
 synchronisiert ist -- der Rest läuft in einem Durchlauf durch.
 
 Bring das Skript (und optional deine ausgefüllte Config-Datei, siehe unten)
-per Hetzner-Console oder `scp` auf den Server, dann:
+auf den Server -- wie genau, hängt von deinem Zugang ab, siehe
+["Dateien auf den Server bringen"](#dateien-auf-den-server-bringen-nur-hetzner-console-windows)
+weiter unten, falls du nur die Hetzner-Browser-Console hast. Dann:
 
 ```bash
 chmod +x install-elektron-stack.sh
@@ -30,10 +32,9 @@ eingetragen werden:
 1. **Eingabe auf der Konsole:** Läuft das Skript in einem Terminal, fragt
    es jeden Wert einzeln ab und zeigt den aktuellen Default in `[...]` --
    Enter übernimmt ihn einfach. So dauert die Installation nur wenige
-   Tastendrücke.
-2. **Config-Datei hochladen:** `elektron-stack.conf.example` nach
-   `elektron-stack.conf` kopieren, dort deine Werte eintragen (lokal auf
-   deinem Rechner oder direkt mit einem Editor auf dem Server), die Datei
+   Tastendrücke -- **du brauchst dafür keine einzige Datei hochzuladen.**
+2. **Config-Datei:** `elektron-stack.conf.example` nach
+   `elektron-stack.conf` kopieren, dort deine Werte eintragen, die Datei
    neben `install-elektron-stack.sh` ablegen (oder mit `--config
    /pfad/zur/datei` angeben). Das Skript findet eine `elektron-stack.conf`
    im selben Verzeichnis automatisch. Alles, was darin leer bleibt, wird
@@ -44,6 +45,14 @@ eingetragen werden:
 `elektron-stack.conf` wird nie committet (siehe `.gitignore`) -- lege sie
 also ruhig direkt auf dem Server ab, ohne sie ins Repo einzuchecken.
 
+**Wichtig:** Die eigentlichen `.env`-Dateien und `bitcoin.conf` in den
+Unterordnern (`elektron-net-ppool/.env`, `elektron-net-faucet/.env`,
+`elektron-net/bitcoin.conf`) musst du bei Nutzung des Skripts **nirgends
+selbst hochladen oder hineinkopieren** -- das Skript schreibt sie komplett
+selbst, aus deinen Konsolen-Antworten bzw. aus `elektron-stack.conf`. Das
+manuelle Kopieren der `*.example`-Vorlagen in Schritt 2 unten ist nur für
+den rein manuellen Weg ohne Skript nötig.
+
 Das Skript ist idempotent: schon geklonte Repos, bereits existierende
 Wallets usw. werden erkannt und übersprungen, ein erneuter Lauf (z. B. nach
 einem Server-Reboot oder um eine Einstellung nachzuziehen) richtet nichts
@@ -52,6 +61,67 @@ kaputt.
 Details zu jedem einzelnen Schritt -- z. B. falls du lieber alles von Hand
 nachvollziehen oder etwas debuggen willst -- stehen in den Abschnitten
 0-8 unten; das Skript automatisiert genau das, was dort beschrieben ist.
+
+## Dateien auf den Server bringen (nur Hetzner-Console, Windows)
+
+Wenn du auf Hetzner bisher nur die **Browser-Console** (Cloud-Panel ->
+Server -> "Console", ein VNC-Fenster im Browser) nutzt und noch keinen
+SSH-Zugang eingerichtet hast, gibt es dort naturgemäß kein Drag & Drop für
+Datei-Uploads. Drei Wege, vom einfachsten zum aufwendigsten:
+
+**A) Gar nichts hochladen -- direkt auf dem Server herunterladen.**
+Dieses Repo ist öffentlich, du kannst beide Dateien in der Browser-Console
+direkt per `curl` holen, ganz ohne Windows-Zwischenschritt:
+
+```bash
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+chmod +x install-elektron-stack.sh
+./install-elektron-stack.sh
+```
+
+Nutzt du dabei die interaktive Konsolen-Eingabe (Option 1 oben), brauchst
+du überhaupt keine Config-Datei -- die Werte tippst du direkt im
+Browser-Fenster ein, fertig.
+
+**B) Trotzdem eine `elektron-stack.conf` verwenden, aber nur mit der
+Browser-Console.** Lade dir zusätzlich die Vorlage herunter und fülle sie
+direkt auf dem Server mit einem Terminal-Editor aus:
+
+```bash
+curl -O https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/elektron-stack.conf.example
+cp elektron-stack.conf.example elektron-stack.conf
+nano elektron-stack.conf   # Werte eintragen, dann Strg+O (speichern), Enter, Strg+X (verlassen)
+```
+
+Für Werte, die du von deinem Windows-Rechner kopierst (z. B. hCaptcha-Keys):
+Die Hetzner-Browser-Console hat oben in der Werkzeugleiste ein
+Tastatur-/Zwischenablage-Symbol ("Paste text" o. ä.) -- damit fügst du
+Text aus der Windows-Zwischenablage direkt in die Console ein, statt lange
+Werte von Hand abzutippen.
+
+**C) Echter Datei-Upload von Windows aus -- braucht SSH/SFTP.** Das geht
+nur, wenn SSH auf dem Server erreichbar ist, nicht über die reine
+Browser-Console. Erst prüfen, ob SSH schon klappt (Windows 10/11 haben
+einen OpenSSH-Client eingebaut, PowerShell oder Windows Terminal öffnen):
+
+```powershell
+ssh root@46.225.163.85
+```
+
+Das root-Passwort steht in der Hetzner-Bestätigungsmail bzw. wurde beim
+Anlegen des Servers einmalig angezeigt -- falls du dabei stattdessen einen
+SSH-Key hinterlegt hast, wirst du automatisch ohne Passwort eingeloggt.
+Meldet sich der Server, kannst du:
+
+- **[WinSCP](https://winscp.net)** benutzen (grafisch, Drag & Drop) --
+  neue Verbindung mit Protokoll SFTP, Host = deine Server-IP, Benutzer
+  `root`.
+- oder direkt in PowerShell: `scp .\elektron-stack.conf root@46.225.163.85:/opt/elektron-net-stack/`
+
+Antwortet SSH nicht: im Hetzner Cloud-Firewall-Panel (Tab "Firewalls")
+prüfen, ob Port 22 für dein Netzwerk erlaubt ist -- Standard-Images haben
+den SSH-Server bereits vorinstalliert und laufend, nur eine zu strenge
+Cloud-Firewall blockiert dann typischerweise den Zugriff.
 
 ## 0. Voraussetzung
 
