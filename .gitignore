@@ -18,3 +18,9 @@ data/
 # nachlädt -- gehört nicht in dieses schlanke Deploy-Repo. Falls du ihn
 # doch mal aus Versehen committest, hier ausschließen:
 elektron-net-ppool-ui/
+
+# Deine ausgefüllte Config-Datei für install-elektron-stack.sh (--config) --
+# enthält reale Domains/IPs und ggf. hCaptcha-Keys. Nur elektron-stack.conf.example
+# (ohne echte Werte) gehört ins Repo.
+elektron-stack.conf
+

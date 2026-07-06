@@ -1,0 +1,75 @@
+# Elektron Net Stack -- Konfigurationsdatei für install-elektron-stack.sh
+#
+# So verwenden:
+#   1. Diese Datei kopieren:  cp elektron-stack.conf.example elektron-stack.conf
+#   2. In elektron-stack.conf deine echten Werte eintragen (siehe unten).
+#   3. Datei neben install-elektron-stack.sh auf den Server legen (z. B. per
+#      scp hochladen, oder im Hetzner-Console-Editor direkt anlegen).
+#   4. ./install-elektron-stack.sh
+#      (elektron-stack.conf wird automatisch gefunden, sofern sie im
+#      selben Verzeichnis wie das Skript liegt -- oder explizit angeben:
+#      ./install-elektron-stack.sh --config /pfad/zu/elektron-stack.conf)
+#
+# Alles, was du hier NICHT einträgst (Zeile leer lassen oder ganz weglassen),
+# wird -- sofern das Skript interaktiv läuft -- auf der Konsole abgefragt,
+# oder es wird der eingebaute Default verwendet (--yes). Passwörter/Secrets,
+# die du leer lässt, werden automatisch sicher generiert.
+#
+# WICHTIG: Diese Datei enthält deine echten Zugangsdaten, sobald du sie
+# ausgefüllt hast -- nicht committen (steht in .gitignore), chmod 600.
+
+# --- General ---
+STACK_DIR=/opt/elektron-net-stack
+GITHUB_USER=kutlusoy
+SERVER_IP=46.225.163.85
+SERVER_IPV6=2a01:4f8:1c18:ea01::1
+
+# --- Domains (müssen in DNS bereits auf SERVER_IP/SERVER_IPV6 zeigen) ---
+NODE_DOMAIN=node1.elektron-net.org
+POOL_DOMAIN=pplns.elektron-net.org
+FAUCET_DOMAIN=faucet.elektron-net.org
+CADDY_EMAIL=
+
+# --- Node / RPC ---
+RPC_USER=elektron_svc
+
+# --- Firewall ---
+FIREWALL_AUTO_CONFIGURE=true
+
+# --- Pool (elektron-net-ppool) ---
+POOL_WALLET_NAME=pool
+POOL_IDENTIFIER=Elektron-PPLNS-Pool
+POOL_FEE_PERCENT=1.0
+PPLNS_WINDOW_MINUTES=90
+MIN_PAYOUT_THRESHOLD_SATS=100000
+PAYOUT_INTERVAL_MINUTES=60
+PAYOUT_CONFIRMATIONS_REQUIRED=1
+PAYOUT_DRY_RUN=true
+STRATUM_PORT=3333
+API_PORT=3334
+# leer lassen = automatisch generieren (openssl rand -hex 32):
+JWT_SECRET=
+
+# --- Faucet (elektron-net-faucet) ---
+FAUCET_WALLET_NAME=faucet
+# leer lassen = automatisch generieren:
+FAUCET_WALLET_PASSPHRASE=
+FAUCET_DB_NAME=elek_faucet
+FAUCET_DB_USER=elek_faucet
+# leer lassen = automatisch generieren:
+FAUCET_DB_PASS=
+FAUCET_DB_ROOT_PASS=
+FAUCET_ADMIN_USER=admin
+# leer lassen = automatisch generieren (mind. 10 Zeichen):
+FAUCET_ADMIN_PASS=
+# von hcaptcha.com -- dringend empfohlen, aber optional:
+FAUCET_HCAPTCHA_SITE=
+FAUCET_HCAPTCHA_SECRET=
+FAUCET_TITLE=Elektron Net Faucet
+FAUCET_MESSAGE=Claim some free ELEK!
+FAUCET_AMOUNT_ELEK=0.001
+FAUCET_DAILY_BUDGET=1
+FAUCET_HOURLY_BUDGET=0.1
+FAUCET_PER_ADDR_COOLDOWN_H=24
+FAUCET_PER_IP_COOLDOWN_H=1
+FAUCET_DEFAULT_LANG=de

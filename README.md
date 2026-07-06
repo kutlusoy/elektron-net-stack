@@ -4,6 +4,55 @@ Enthält: `elektron-net` (Seed-Node), `elektron-net-ppool` + `elektron-net-ppool
 (PPLNS-Pool), `elektron-net-faucet`. Ein Caddy als gemeinsamer Reverse Proxy
 für HTTPS.
 
+## Schnellstart (automatisiert)
+
+Die Schritte 1-7 weiter unten (Repos klonen, RPC-Zugangsdaten generieren,
+`.env`-Dateien ausfüllen, Node hochfahren, Wallets anlegen, Firewall öffnen)
+erledigt `install-elektron-stack.sh` automatisch für dich. Alle Passwörter
+(RPC, JWT_SECRET, DB, Wallet-Passphrase, Faucet-Admin) werden dabei sicher
+generiert, sofern du sie nicht selbst vorgibst. Manuell bleiben nur die
+**DNS-Einträge (Schritt 1)** und ein paar Minuten Warten, bis der Node
+synchronisiert ist -- der Rest läuft in einem Durchlauf durch.
+
+Bring das Skript (und optional deine ausgefüllte Config-Datei, siehe unten)
+per Hetzner-Console oder `scp` auf den Server, dann:
+
+```bash
+chmod +x install-elektron-stack.sh
+./install-elektron-stack.sh
+```
+
+Für die serverspezifischen Angaben (Domains, IPv4/IPv6, GitHub-Benutzer,
+hCaptcha-Keys, Let's-Encrypt-Mail) hast du zwei gleichwertige Optionen --
+sensible Daten müssen also **nicht** vorher in eine Datei im Repo
+eingetragen werden:
+
+1. **Eingabe auf der Konsole:** Läuft das Skript in einem Terminal, fragt
+   es jeden Wert einzeln ab und zeigt den aktuellen Default in `[...]` --
+   Enter übernimmt ihn einfach. So dauert die Installation nur wenige
+   Tastendrücke.
+2. **Config-Datei hochladen:** `elektron-stack.conf.example` nach
+   `elektron-stack.conf` kopieren, dort deine Werte eintragen (lokal auf
+   deinem Rechner oder direkt mit einem Editor auf dem Server), die Datei
+   neben `install-elektron-stack.sh` ablegen (oder mit `--config
+   /pfad/zur/datei` angeben). Das Skript findet eine `elektron-stack.conf`
+   im selben Verzeichnis automatisch. Alles, was darin leer bleibt, wird
+   -- falls interaktiv gestartet -- trotzdem abgefragt, oder mit `--yes`
+   komplett automatisch (Default-Wert bzw. Auto-Generierung) übernommen --
+   praktisch für unbeaufsichtigte/CI-Läufe.
+
+`elektron-stack.conf` wird nie committet (siehe `.gitignore`) -- lege sie
+also ruhig direkt auf dem Server ab, ohne sie ins Repo einzuchecken.
+
+Das Skript ist idempotent: schon geklonte Repos, bereits existierende
+Wallets usw. werden erkannt und übersprungen, ein erneuter Lauf (z. B. nach
+einem Server-Reboot oder um eine Einstellung nachzuziehen) richtet nichts
+kaputt.
+
+Details zu jedem einzelnen Schritt -- z. B. falls du lieber alles von Hand
+nachvollziehen oder etwas debuggen willst -- stehen in den Abschnitten
+0-8 unten; das Skript automatisiert genau das, was dort beschrieben ist.
+
 ## 0. Voraussetzung
 
 Docker CE + Compose-Plugin bereits installiert (laut dir schon erledigt).
