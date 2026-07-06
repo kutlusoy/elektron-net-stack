@@ -1,0 +1,20 @@
+# Von install-elektron-stack.sh generierte Secrets -- NIE committen.
+# Aktuell liegen hier nur Platzhalter-Templates im Repo; sobald das Skript
+# einmal live läuft, werden diese beiden Dateien mit echten Passwörtern
+# überschrieben.
+elektron-net-ppool/.env
+elektron-net-faucet/.env
+.env
+
+# Wird vom Skript mit dem echten rpcauth-Hash überschrieben (Hash, nicht
+# Klartext-Passwort -- aber trotzdem besser nicht committen).
+elektron-net/bitcoin.conf
+
+# Laufzeitdaten (Blockchain, Wallets, DB, Faucet-Config) -- entstehen erst
+# auf dem Server durch die volumes-Mounts in docker-compose.yml.
+data/
+
+# Upstream-Quellcode, den clone_or_skip() bei jedem Lauf frisch von GitHub
+# nachlädt -- gehört nicht in dieses schlanke Deploy-Repo. Falls du ihn
+# doch mal aus Versehen committest, hier ausschließen:
+elektron-net-ppool-ui/

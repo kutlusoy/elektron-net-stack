@@ -145,10 +145,28 @@ cd "$STACK_DIR"
 clone_or_skip() {
   local repo="$1"
   if [ -d "$repo/.git" ]; then
-    log "Repo $repo existiert schon, überspringe git clone."
+    log "Repo $repo existiert schon (vollständiger git-Klon), überspringe."
+    return
+  fi
+
+  if [ -d "$repo" ] && [ "$(ls -A "$repo" 2>/dev/null)" ]; then
+    # Verzeichnis existiert bereits und ist nicht leer -- typischerweise weil
+    # es aus DIESEM Deploy-Repo (elektron-net-stack) kommt und schon unsere
+    # Zusatzdateien enthält (Dockerfile, bitcoin.conf, .env-Template, ...).
+    # `git clone` würde hier mit "destination path already exists and is
+    # not an empty directory" abbrechen -- also stattdessen in ein
+    # Temp-Verzeichnis klonen und nur das reinkopieren, was noch nicht da
+    # ist (unsere bereits vorhandenen Dateien bleiben unangetastet).
+    log "Verzeichnis $repo existiert schon und ist nicht leer -- klone Upstream in ein Temp-Verzeichnis und merge non-destruktiv rein."
+    local tmp
+    tmp="$(mktemp -d)"
+    git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$tmp"
+    rm -rf "$tmp/.git"
+    cp -rn "$tmp"/. "$repo"/
+    rm -rf "$tmp"
   else
     log "Klone $repo ..."
-    git clone "https://github.com/${GITHUB_USER}/${repo}.git"
+    git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$repo"
   fi
 }
 
