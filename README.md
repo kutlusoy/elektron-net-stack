@@ -439,6 +439,93 @@ den P2P-Betrieb (Sekunden bis wenige Minuten, bis der Node wieder
 synchron ist) -- für den Node am besten eine ruhige Zeit wählen, Pool und
 Faucet sind davon unabhängig neu startbar.
 
+## Externe Wallets importieren (WIF/Private Key)
+
+Hast du eine Adresse offline erzeugt (z. B. mit
+`elektron-net/mining/generate_address.py`, wie deine Datei in
+`external-wallets/`) und willst den Private Key irgendwo nutzbar machen --
+zum Ausgeben, zum Beobachten, oder um sie einer GUI-Wallet hinzuzufügen --
+**wichtig:** `importprivkey` und `dumpwallet` gibt es in diesem Fork nicht
+mehr (`error code: -32601, Method not found`, live getestet). Er nutzt wie
+modernes Bitcoin Core ausschließlich Descriptor-Wallets; der Ersatz ist
+`importdescriptors`. Drei Wege, je nachdem wo du den Import machen willst:
+
+### A) Auf dem Hetzner-Server, in den laufenden Node (CLI)
+
+Nutzt den ohnehin laufenden `elektron-net`-Container aus diesem Stack --
+kein zusätzliches Programm nötig:
+
+```bash
+cd /opt/elektron-net-stack
+
+# 1. Eigene Wallet dafür anlegen (getrennt von pool/faucet, ohne
+#    automatisch generierte Keys)
+docker compose exec elektron-net elektron-cli createwallet "prepaid" false true
+
+# 2. Checksum für den Descriptor holen -- combo(...) leitet daraus alle drei
+#    Standard-Adressformate ab (P2PKH, P2SH-SegWit, P2WPKH/bech32), nicht
+#    nur eins:
+docker compose exec elektron-net elektron-cli getdescriptorinfo "combo(<WIF>)"
+# -> Feld "checksum" aus der Antwort kopieren, z. B. "7xr75u5v"
+
+# 3. Mit WIF + Checksum importieren
+docker compose exec elektron-net elektron-cli -rpcwallet=prepaid importdescriptors \
+  '[{"desc": "combo(<WIF>)#<checksum>", "timestamp": 0, "label": "prepaid-import"}]'
+```
+
+`timestamp`: **`0`** durchsucht die komplette Chain nach bereits
+vorhandenen UTXOs für diese Adresse -- nötig, wenn schon vor dem Import
+ELEK draufgeschickt wurde (kann laut Bitcoin-Core-Doku bei einer sehr
+alten Adresse über eine Stunde dauern). **`"now"`** überspringt das
+Scannen komplett, nur sinnvoll bei einem brandneuen, nie benutzten Key.
+
+Danach normal nutzbar: `docker compose exec elektron-net elektron-cli
+-rpcwallet=prepaid getbalance`, `sendtoaddress`, `listunspent`, usw.
+
+### B) Lokal auf Windows -- offizielle GUI-Wallet (elektron-qt)
+
+Für den Fall, dass du den Key nicht auf dem Server, sondern lokal auf
+deinem eigenen Windows-Rechner verwalten willst, ohne selbst etwas zu
+kompilieren:
+
+1. Offizielles Release herunterladen: [github.com/kutlusoy/elektron-net/releases](https://github.com/kutlusoy/elektron-net/releases)
+   -- entweder das portable ZIP oder den Setup-Installer (`elektron-net-windows-*_portable.zip`
+   bzw. `..._setup.exe`).
+2. `elektron-qt.exe` starten (das ist die GUI, Pendant zu Bitcoin-Qt --
+   läuft als eigener, vollständiger Node, synchronisiert selbst mit dem
+   Elektron-Net-Netzwerk).
+3. **Es gibt keinen eigenen "Private Key importieren"-Dialog in der GUI**
+   -- das war auch in Bitcoin-Qt nie der Fall. Stattdessen: Menü
+   **Hilfe -> Debug-Fenster -> Konsole** (bzw. *Help -> Debug window ->
+   Console* im englischen Original) öffnen und dort exakt dieselben drei
+   Befehle wie unter A) eintippen (ohne das `docker compose exec
+   elektron-net`-Präfix -- die Konsole spricht schon direkt mit dem
+   lokalen Node):
+   ```
+   createwallet "prepaid" false true
+   getdescriptorinfo "combo(<WIF>)"
+   importdescriptors [{"desc": "combo(<WIF>)#<checksum>", "timestamp": 0, "label": "prepaid-import"}]
+   ```
+4. Guthaben/Adressen erscheinen danach im normalen Wallet-Tab der GUI.
+
+Diese lokale GUI-Wallet ist komplett unabhängig vom Hetzner-Stack -- sie
+synchronisiert ihre eigene Kopie der Chain und hat nichts mit den
+Pool-/Faucet-Wallets auf dem Server zu tun.
+
+### C) Andere Methoden (kurz)
+
+- **Reines `elektron-cli` ohne GUI**, z. B. auf einem zweiten Server oder
+  lokal: dieselben drei Befehle aus A), nur direkt gegen den lokal
+  laufenden `elektrond` statt über `docker compose exec`.
+- **Nur beobachten, nicht ausgeben können** (watch-only, kein Private Key
+  in der Zielwallet): `createwallet "beobachtung" true` (der zweite
+  Parameter -- `disable_private_keys` -- macht sie watch-only), dann
+  `importdescriptors` mit einem Descriptor **ohne** Private Key (nur die
+  Adresse/den Public Key), z. B. `addr(<Adresse>)` statt `combo(<WIF>)`.
+- Alle Wege erzeugen am Ende dieselben Adressen aus demselben Key -- welche
+  Methode du nimmst, hängt nur davon ab, wo du den Key benutzen willst,
+  nicht von einer technischen Einschränkung.
+
 ## 0. Voraussetzung
 
 Docker CE + Compose-Plugin bereits installiert (laut dir schon erledigt).
