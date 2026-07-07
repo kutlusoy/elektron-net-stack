@@ -309,6 +309,7 @@ kurz zusammengefasst:
 |---|---|
 | Server/Domains | `GITHUB_USER`, `SERVER_IP`, `SERVER_IPV6`, `NODE_DOMAIN`, `POOL_DOMAIN`, `FAUCET_DOMAIN`, `CADDY_EMAIL` |
 | Node/Firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
+| Repo-Updates | `AUTO_UPDATE_REPOS` (leer/`false` = nie automatisch aktualisieren, siehe "Stack aktualisieren") |
 | Pool-Verhalten | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
 | Pool-Wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (leer = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool-Benachrichtigungen (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
@@ -409,11 +410,23 @@ automatisch unangetastet, siehe oben).
 
 ### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet)
 
-`install-elektron-stack.sh` klont jedes Repo nur **einmal** -- ein Rerun
-holt bei bereits vorhandenen Klonen bewusst **keine** neuen Commits (das
-ist Absicht, damit ein normaler Rerun keine unerwarteten Code-Änderungen
-einspielt). Für ein Source-Update also selbst `git pull`, dann nur den
-betroffenen Container neu bauen:
+**Automatisch beim Skript-Lauf:** Antworte bei der Frage *"Vor dem Bauen
+nach Updates in den geklonten Repos suchen ...?"* (kommt ganz am Anfang,
+noch vor den anderen Prompts) mit `j`, oder setze
+`AUTO_UPDATE_REPOS=true` in `elektron-stack.conf`. Das Skript holt dann
+für jedes bereits geklonte Repo per `git fetch` die neuesten Commits,
+zeigt sie an und spielt sie per `git pull --ff-only` ein -- niemals
+force/rebase, ein lokal abgewichener Branch (z. B. weil du selbst etwas
+committet hast) wird nur gemeldet und bewusst **nicht** angefasst. Der
+abschließende `docker compose up -d --build` baut die aktualisierten
+Repos dann automatisch mit ein. Standardmäßig (Enter/`n`) bleibt alles
+wie bisher -- ein Rerun holt dann bewusst **keine** neuen Commits, damit
+ein normaler Rerun (z. B. nur um eine Einstellung zu ändern) nie
+unerwartet Code aktualisiert.
+
+**Manuell, gezielt für ein Repo:** Falls du nur dieses eine Mal
+aktualisieren willst, ohne die Frage im Skript zu nutzen -- selbst
+`git pull`, dann nur den betroffenen Container neu bauen:
 
 ```bash
 cd /opt/elektron-net-stack/elektron-net-ppool   # Repo mit der neuen Version
@@ -584,13 +597,21 @@ Kurz warten/prüfen: `dig +short pplns.elektron-net.org` und
 liefern, bevor du Caddy startest (sonst schlägt die Let's-Encrypt-Anfrage
 fehl).
 
-**IPv6 im Stack:** P2P (8333), Stratum (3333) und Caddy (80/443) sind im
-mitgelieferten `docker-compose.yml` bereits dual-stack published
-(`"[::]:PORT:PORT"` zusätzlich zur IPv4-Zeile) -- das braucht keine
-Docker-Daemon-Konfiguration, weil Docker den eingehenden IPv6-Traffic per
-`docker-proxy` einfach an die (intern weiterhin IPv4-basierten) Container
-weiterreicht. Sobald die AAAA-Records oben stehen, ist alles automatisch
-auch über IPv6 erreichbar.
+**IPv6 im Stack:** P2P (8333), Stratum (3333) und Caddy (80/443) werden im
+mitgelieferten `docker-compose.yml` ganz normal nur mit der einfachen
+Form (`"PORT:PORT"`, ohne Host-IP) published -- Docker legt dafür selbst
+(ab Docker Engine 27, getestet mit 27.5.1) automatisch zwei
+`docker-proxy`-Prozesse an, einen für `0.0.0.0` (IPv4) und einen für `[::]`
+(IPv6), und leitet beide an den (intern weiterhin IPv4-basierten)
+Container weiter. Das braucht keine Docker-Daemon-Konfiguration und keine
+zusätzliche `"[::]:PORT:PORT"`-Zeile -- eine frühere Version dieser Datei
+hatte zusätzlich genau so eine Zeile explizit gesetzt, was auf manchen
+Docker-Versionen zu `Error ... bind: address already in use` führt (der
+explizite Eintrag kollidiert mit der Docker-eigenen automatischen
+IPv6-Bindung). Sobald die AAAA-Records oben stehen, ist alles automatisch
+auch über IPv6 erreichbar -- prüfen mit `ss -tlnp | grep <port>`, sollte
+sowohl eine `0.0.0.0`- als auch eine `[::]`-Zeile mit `docker-proxy`
+zeigen.
 
 **Private Netzwerk-IP (10.0.0.2, Hetzner vSwitch):** wird von diesem Stack
 aktuell nicht verwendet -- alle Container kommunizieren intern über die

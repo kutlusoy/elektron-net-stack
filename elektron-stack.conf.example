@@ -21,6 +21,12 @@
 # --- General ---
 STACK_DIR=/opt/elektron-net-stack
 GITHUB_USER=kutlusoy
+# false (Default) = bereits geklonte Repos bei einem Rerun nie anfassen.
+# true = vor dem Bauen jedes Repo per "git fetch" prüfen und bei neuen
+# Commits per "git pull --ff-only" aktualisieren (nie force/rebase -- ein
+# abgewichener lokaler Branch wird nur gemeldet, nicht angefasst). Wird
+# interaktiv abgefragt, sofern nicht hier gesetzt oder --yes verwendet.
+AUTO_UPDATE_REPOS=false
 SERVER_IP=46.225.163.85
 SERVER_IPV6=2a01:4f8:1c18:ea01::1
 
