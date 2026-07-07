@@ -479,7 +479,7 @@ RUN cmake -B build \
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libevent-2.1-7 libevent-pthreads-2.1-7 \
+        libevent-2.1-7 libevent-pthreads-2.1-7 libevent-extra-2.1-7 \
         libsqlite3-0 libzmq5 \
         ca-certificates gosu \
     && rm -rf /var/lib/apt/lists/* \
@@ -787,9 +787,20 @@ ln -sf elektron-net-faucet/.env .env
 log "Baue und starte elektron-net ..."
 docker compose up -d --build elektron-net
 
+# `docker compose exec` runs as root by default (the Dockerfile has no
+# USER directive -- only the container's own PID 1 gets dropped to the
+# "elektron" user, via gosu in docker-entrypoint.sh). elektron-cli's
+# automatic cookie-file lookup uses $HOME/<default-datadir>, which for
+# root is /root/... -- NOT /data, where the real cookie file actually is.
+# So every elektron-cli call needs the RPC credentials passed explicitly;
+# relying on auto-discovery here silently fails auth every time.
+node_cli() {
+  docker compose exec -T elektron-net elektron-cli -rpcuser="$RPC_USER" -rpcpassword="$RPC_PASSWORD" "$@"
+}
+
 wait_for_rpc() {
   local retries=60 i=0
-  until docker compose exec -T elektron-net elektron-cli getblockchaininfo >/dev/null 2>&1; do
+  until node_cli getblockchaininfo >/dev/null 2>&1; do
     i=$((i + 1))
     [ "$i" -ge "$retries" ] && die "Timeout: elektron-net RPC antwortet nach 5 Minuten nicht."
     sleep 5
@@ -803,7 +814,7 @@ wait_for_rpc
 # 10. Wallets anlegen -- PFLICHT für Pool und Faucet
 # ============================================================================
 wallet_loaded() {
-  docker compose exec -T elektron-net elektron-cli listwallets | grep -q "\"$1\""
+  node_cli listwallets | grep -q "\"$1\""
 }
 
 create_wallet_if_missing() {
@@ -812,8 +823,8 @@ create_wallet_if_missing() {
     log "Wallet '$wname' ist bereits vorhanden/geladen, überspringe Erstellung."
   else
     log "Erstelle Wallet '$wname' ..."
-    docker compose exec -T elektron-net elektron-cli createwallet "$wname" >/dev/null \
-      || docker compose exec -T elektron-net elektron-cli loadwallet "$wname" >/dev/null
+    node_cli createwallet "$wname" >/dev/null \
+      || node_cli loadwallet "$wname" >/dev/null
   fi
 }
 
@@ -823,7 +834,7 @@ if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
   POOL_ADDR="$EXISTING_POOL_WALLET_ADDRESS"
   log "Pool-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${POOL_ADDR}"
 else
-  POOL_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+  POOL_ADDR="$(node_cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
   log "Neue Pool-Wallet-Adresse: ${POOL_ADDR}"
 fi
 sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
@@ -839,15 +850,15 @@ sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-ne
 encrypt_wallet_if_missing() {
   local wname="$1" passphrase="$2"
   local info
-  info="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" getwalletinfo)"
+  info="$(node_cli -rpcwallet="$wname" getwalletinfo)"
   if echo "$info" | grep -q '"unlocked_until"'; then
     log "Wallet '$wname' ist bereits verschlüsselt, überspringe encryptwallet."
   else
     log "Verschlüssele Wallet '$wname' (Node startet dabei kurz neu) ..."
-    docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" encryptwallet "$passphrase" || true
+    node_cli -rpcwallet="$wname" encryptwallet "$passphrase" || true
     sleep 8
     wait_for_rpc
-    wallet_loaded "$wname" || docker compose exec -T elektron-net elektron-cli loadwallet "$wname" >/dev/null
+    wallet_loaded "$wname" || node_cli loadwallet "$wname" >/dev/null
   fi
 }
 
@@ -861,7 +872,7 @@ if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
   FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
   log "Faucet-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${FAUCET_ADDR}"
 else
-  FAUCET_ADDR="$(docker compose exec -T elektron-net elektron-cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+  FAUCET_ADDR="$(node_cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
   log "Neue Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
 fi
 sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
@@ -883,12 +894,12 @@ backup_wallet_privkeys() {
     return
   fi
   log "Exportiere private Schlüssel der Wallet '$wname' (vollständiges Backup) ..."
-  if docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" dumpwallet "$container_path" >/dev/null 2>&1; then
+  if node_cli -rpcwallet="$wname" dumpwallet "$container_path" >/dev/null 2>&1; then
     log "Wallet-Backup (dumpwallet, Legacy-Format) gespeichert: ${host_path}"
-  elif docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" listdescriptors true > "$host_path" 2>/dev/null; then
+  elif node_cli -rpcwallet="$wname" listdescriptors true > "$host_path" 2>/dev/null; then
     log "Wallet-Backup (private Descriptors) gespeichert: ${host_path}"
   else
-    warn "Konnte kein automatisches Wallet-Backup für '$wname' erstellen -- bitte manuell prüfen: docker compose exec elektron-net elektron-cli -rpcwallet=$wname listdescriptors true"
+    warn "Konnte kein automatisches Wallet-Backup für '$wname' erstellen -- bitte manuell prüfen: docker compose exec elektron-net elektron-cli -rpcuser=$RPC_USER -rpcpassword=<siehe ZUGANGSDATEN.txt> -rpcwallet=$wname listdescriptors true"
     rm -f "$host_path"
     return
   fi
@@ -907,10 +918,10 @@ export_wallet_backup() {
     return
   fi
   log "Entsperre Wallet '$wname' kurz für den Private-Key-Export ..."
-  docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" walletpassphrase "$passphrase" 60 >/dev/null 2>&1 \
+  node_cli -rpcwallet="$wname" walletpassphrase "$passphrase" 60 >/dev/null 2>&1 \
     || warn "Konnte Wallet '$wname' nicht entsperren -- Private-Key-Export wird wahrscheinlich fehlschlagen, Passphrase prüfen."
   backup_wallet_privkeys "$wname" "$host_path" "$container_path"
-  docker compose exec -T elektron-net elektron-cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
+  node_cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
 }
 
 export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WALLET_DUMP_HOST"   "/data/pool-wallet-privkeys-backup.txt"
@@ -1070,8 +1081,9 @@ cat <<SUMMARY
      docker compose -f ${STACK_DIR}/docker-compose.yml ps
    Logs verfolgen (z.B. Node):
      docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net
-   Node-Sync-Status:
-     docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-net elektron-cli getblockchaininfo
+   Node-Sync-Status (RPC-Zugangsdaten nötig, da "docker compose exec" als root
+   läuft und die automatische Cookie-Datei-Erkennung dann nicht greift):
+     docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-net elektron-cli -rpcuser=${RPC_USER} -rpcpassword=${RPC_PASSWORD} getblockchaininfo
    Nur einen Service nach einer .env-Änderung neu starten:
      docker compose -f ${STACK_DIR}/docker-compose.yml up -d --force-recreate <service>
    Diese Übersicht jederzeit erneut ansehen:
