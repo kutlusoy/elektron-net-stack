@@ -420,6 +420,7 @@ RUN cmake -B build \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_GUI=OFF \
         -DWITH_ZMQ=ON \
+        -DENABLE_IPC=OFF \
     && cmake --build build -j"$(nproc)" \
     && cmake --install build
 
