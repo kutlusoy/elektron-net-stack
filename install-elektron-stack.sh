@@ -341,7 +341,7 @@ fi
 
 # --- Soft DNS sanity check (does not abort on mismatch, just warns) ---
 for d in "$NODE_DOMAIN" "$POOL_DOMAIN" "$FAUCET_DOMAIN"; do
-  resolved="$(getent hosts "$d" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
+  resolved="$(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
   if [ -z "$resolved" ]; then
     warn "$d löst (noch) nicht auf. Caddy wird für dieses Encpoint kein TLS bekommen, bis DNS propagiert ist."
   elif [ "$resolved" != "$SERVER_IP" ]; then
