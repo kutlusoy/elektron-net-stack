@@ -453,7 +453,14 @@ log "Schreibe elektron-net/docker-entrypoint.sh ..."
 cat > elektron-net/docker-entrypoint.sh <<'ENTRYPOINT_EOF'
 #!/bin/sh
 set -e
-chown -R elektron:elektron /data
+# bitcoin.conf is bind-mounted read-only directly at /data/bitcoin.conf --
+# `chown -R` on the whole tree would fail on it (Read-only file system)
+# and, under `set -e`, abort this script before elektrond ever starts.
+# It doesn't need to be owned by elektron anyway, just readable (world-
+# readable by default from how the install script writes it) -- so chown
+# everything else under /data and leave that one path alone.
+chown elektron:elektron /data
+find /data -mindepth 1 -maxdepth 1 ! -name bitcoin.conf -exec chown -R elektron:elektron {} +
 exec gosu elektron "$@"
 ENTRYPOINT_EOF
 chmod +x elektron-net/docker-entrypoint.sh
