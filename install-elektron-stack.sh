@@ -508,7 +508,6 @@ services:
       - backend
     ports:
       - "8333:8333"
-      - "[::]:8333:8333"
     volumes:
       - "./elektron-net/bitcoin.conf:/data/bitcoin.conf:ro"
       - "./data/elektron-net:/data"
@@ -524,7 +523,6 @@ services:
       - backend
     ports:
       - "3333:3333"
-      - "[::]:3333:3333"
     volumes:
       - "./elektron-net-ppool/.env:/elektron-pool/.env:ro"
       - "./data/ppool-DB:/elektron-pool/DB"
@@ -590,8 +588,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "[::]:80:80"
-      - "[::]:443:443"
     volumes:
       - "./caddy/Caddyfile:/etc/caddy/Caddyfile:ro"
       - "caddy_data:/data"
