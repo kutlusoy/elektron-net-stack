@@ -309,6 +309,7 @@ kurz zusammengefasst:
 |---|---|
 | Server/Domains | `GITHUB_USER`, `SERVER_IP`, `SERVER_IPV6`, `NODE_DOMAIN`, `POOL_DOMAIN`, `FAUCET_DOMAIN`, `CADDY_EMAIL` |
 | Node/Firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
+| Repo-Updates | `AUTO_UPDATE_REPOS` (leer/`false` = nie automatisch aktualisieren, siehe "Stack aktualisieren") |
 | Pool-Verhalten | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
 | Pool-Wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (leer = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool-Benachrichtigungen (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
@@ -409,11 +410,23 @@ automatisch unangetastet, siehe oben).
 
 ### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet)
 
-`install-elektron-stack.sh` klont jedes Repo nur **einmal** -- ein Rerun
-holt bei bereits vorhandenen Klonen bewusst **keine** neuen Commits (das
-ist Absicht, damit ein normaler Rerun keine unerwarteten Code-Änderungen
-einspielt). Für ein Source-Update also selbst `git pull`, dann nur den
-betroffenen Container neu bauen:
+**Automatisch beim Skript-Lauf:** Antworte bei der Frage *"Vor dem Bauen
+nach Updates in den geklonten Repos suchen ...?"* (kommt ganz am Anfang,
+noch vor den anderen Prompts) mit `j`, oder setze
+`AUTO_UPDATE_REPOS=true` in `elektron-stack.conf`. Das Skript holt dann
+für jedes bereits geklonte Repo per `git fetch` die neuesten Commits,
+zeigt sie an und spielt sie per `git pull --ff-only` ein -- niemals
+force/rebase, ein lokal abgewichener Branch (z. B. weil du selbst etwas
+committet hast) wird nur gemeldet und bewusst **nicht** angefasst. Der
+abschließende `docker compose up -d --build` baut die aktualisierten
+Repos dann automatisch mit ein. Standardmäßig (Enter/`n`) bleibt alles
+wie bisher -- ein Rerun holt dann bewusst **keine** neuen Commits, damit
+ein normaler Rerun (z. B. nur um eine Einstellung zu ändern) nie
+unerwartet Code aktualisiert.
+
+**Manuell, gezielt für ein Repo:** Falls du nur dieses eine Mal
+aktualisieren willst, ohne die Frage im Skript zu nutzen -- selbst
+`git pull`, dann nur den betroffenen Container neu bauen:
 
 ```bash
 cd /opt/elektron-net-stack/elektron-net-ppool   # Repo mit der neuen Version

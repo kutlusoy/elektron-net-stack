@@ -45,6 +45,12 @@ die()  { printf '\n\033[1;31mERROR:\033[0m %s\n' "$1"; exit 1; }
 # --- General ---
 STACK_DIR="/opt/elektron-net-stack"           # where everything gets installed
 GITHUB_USER="kutlusoy"                        # github.com/<user>/elektron-net...
+# false = never touch already-cloned repos (today's default, 100% predictable).
+# true = on every run, git fetch each already-cloned repo and fast-forward
+# it to its upstream tracking branch if there are new commits (never force,
+# never rebase -- a diverged local branch is left alone and just warned
+# about). Asked interactively below unless --yes is given.
+AUTO_UPDATE_REPOS="false"
 SERVER_IP="46.225.163.85"                     # only used for the DNS sanity check
 # Fallback-Wert, falls die automatische Erkennung weiter unten (ip -6 addr)
 # nichts findet. Das Hetzner-Panel zeigt im Networking-Tab nur das geroutete
@@ -123,7 +129,7 @@ FAUCET_EXPLORER_URL=""                        # optional, shown as a link after 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
 # (so an uploaded file can only ever set plain values, never run code).
-CONFIG_VARS="STACK_DIR GITHUB_USER SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
+CONFIG_VARS="STACK_DIR GITHUB_USER AUTO_UPDATE_REPOS SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
 FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
 POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
@@ -220,8 +226,24 @@ ask() {
   fi
 }
 
+# Strict j/n prompt for boolean settings -- anything that isn't a clear
+# yes/no answer keeps the current default rather than guessing.
+ask_yes_no() {
+  local var_name="$1" prompt_text="$2" current input default_label
+  current="${!var_name}"
+  [ "$current" = "true" ] && default_label="J/n" || default_label="j/N"
+  read -rp "$prompt_text [$default_label]: " input
+  case "$input" in
+    [jJyY]*) printf -v "$var_name" 'true' ;;
+    [nN]*) printf -v "$var_name" 'false' ;;
+    "") : ;;
+    *) warn "Unklare Eingabe ('$input') -- behalte den bisherigen Wert ($current)." ;;
+  esac
+}
+
 if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   log "Interaktive Konfiguration -- Enter übernimmt den Default-/Config-Wert. Mit --yes überspringen."
+  ask_yes_no AUTO_UPDATE_REPOS "Vor dem Bauen nach Updates in den geklonten Repos suchen und per 'git pull --ff-only' einspielen?"
   ask GITHUB_USER   "GitHub-Benutzername (github.com/<user>/elektron-net...)"
   ask SERVER_IP     "Öffentliche IPv4-Adresse dieses Servers"
   ask SERVER_IPV6   "Öffentliche IPv6-Adresse (wird unten zusätzlich automatisch erkannt)"
@@ -362,10 +384,37 @@ done
 mkdir -p "$STACK_DIR"
 cd "$STACK_DIR"
 
+update_if_enabled() {
+  # Only ever fast-forwards the CURRENTLY checked-out branch to its own
+  # upstream tracking branch -- never force, never rebase, never touches
+  # an intentionally checked-out different branch/commit. A diverged
+  # branch (local commits ahead, or no upstream configured) is left
+  # completely alone, just reported.
+  local repo="$1"
+  [ "$AUTO_UPDATE_REPOS" = "true" ] || return 0
+  ( cd "$repo" \
+    && git fetch --quiet \
+    && local_head="$(git rev-parse HEAD)" \
+    && remote_head="$(git rev-parse '@{upstream}' 2>/dev/null || true)" \
+    && if [ -z "$remote_head" ]; then
+         warn "$repo: kein Upstream-Tracking-Branch gefunden, überspringe Update-Check."
+       elif [ "$local_head" = "$remote_head" ]; then
+         log "$repo: bereits aktuell, keine neuen Commits."
+       elif git merge-base --is-ancestor HEAD "@{upstream}"; then
+         log "$repo: neue Commits gefunden, aktualisiere (fast-forward):"
+         git log --oneline "HEAD..@{upstream}"
+         git pull --ff-only --quiet
+       else
+         warn "$repo: lokaler Branch ist vom Upstream abgewichen (eigene Commits?) -- überspringe automatisches Update, bitte manuell prüfen."
+       fi
+  )
+}
+
 clone_or_skip() {
   local repo="$1"
   if [ -d "$repo/.git" ]; then
-    log "Repo $repo existiert schon (vollständiger git-Klon), überspringe."
+    log "Repo $repo existiert schon (vollständiger git-Klon), überspringe Neu-Klonen."
+    update_if_enabled "$repo"
     return
   fi
 
