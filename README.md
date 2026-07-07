@@ -329,6 +329,31 @@ ohne Fehler zu werfen. Für Discord müssen alle vier Felder zusammen gesetzt
 sein (Token, Client-ID, Guild-ID, Channel-ID), sonst bleibt die Integration
 inaktiv.
 
+**Häufiger Stolperstein bei Dateien von Windows: `\r\n`-Zeilenumbrüche.**
+Wurde `install-elektron-stack.sh` (oder `elektron-stack.conf`) mit einem
+Windows-Editor bearbeitet oder über ein Tool hochgeladen, das Zeilenenden
+umwandelt, bekommst du beim Ausführen ggf.:
+
+```
+/usr/bin/env: 'bash\r': No such file or directory
+```
+
+Das liegt daran, dass die erste Zeile dann `#!/usr/bin/env bash\r` lautet
+-- `env` sucht dann nach einem Programm namens `bash\r`, das es nicht
+gibt. Fix direkt auf dem Server:
+
+```bash
+sed -i 's/\r$//' install-elektron-stack.sh elektron-stack.conf
+./install-elektron-stack.sh
+```
+
+(`dos2unix install-elektron-stack.sh elektron-stack.conf` funktioniert
+genauso, falls installiert.) Um das beim nächsten Upload gleich zu
+vermeiden: In WinSCP den Übertragungsmodus für diese Dateien auf
+**Binär** stellen (Transfer Settings -> Transfer mode -> Binary) statt
+"Automatisch"/"Text" -- Letzteres wandelt Zeilenenden beim Hochladen
+gerne unbemerkt um.
+
 ## Stack aktualisieren
 
 Drei unterschiedliche Situationen -- jede mit ihrem eigenen, passenden Weg.
