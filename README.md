@@ -334,30 +334,8 @@ ohne Fehler zu werfen. Für Discord müssen alle vier Felder zusammen gesetzt
 sein (Token, Client-ID, Guild-ID, Channel-ID), sonst bleibt die Integration
 inaktiv.
 
-**Häufiger Stolperstein bei Dateien von Windows: `\r\n`-Zeilenumbrüche.**
-Wurde `install-elektron-stack.sh` (oder `elektron-stack.conf`) mit einem
-Windows-Editor bearbeitet oder über ein Tool hochgeladen, das Zeilenenden
-umwandelt, bekommst du beim Ausführen ggf.:
-
-```
-/usr/bin/env: 'bash\r': No such file or directory
-```
-
-Das liegt daran, dass die erste Zeile dann `#!/usr/bin/env bash\r` lautet
--- `env` sucht dann nach einem Programm namens `bash\r`, das es nicht
-gibt. Fix direkt auf dem Server:
-
-```bash
-sed -i 's/\r$//' install-elektron-stack.sh elektron-stack.conf
-./install-elektron-stack.sh
-```
-
-(`dos2unix install-elektron-stack.sh elektron-stack.conf` funktioniert
-genauso, falls installiert.) Um das beim nächsten Upload gleich zu
-vermeiden: In WinSCP den Übertragungsmodus für diese Dateien auf
-**Binär** stellen (Transfer Settings -> Transfer mode -> Binary) statt
-"Automatisch"/"Text" -- Letzteres wandelt Zeilenenden beim Hochladen
-gerne unbemerkt um.
+Bekommst du beim Ausführen `/usr/bin/env: 'bash\r': No such file or
+directory` -- siehe [Troubleshooting](#troubleshooting) ganz unten.
 
 ## Stack aktualisieren
 
@@ -923,3 +901,19 @@ Integration, aktuell nicht aktiv gepflegt.
   für WinSCP/scp), dann auf dem Server unter Verschluss lassen. Das ist die
   brisanteste Datei im Stack — Zugriff darauf = Kontrolle über alle
   Guthaben.
+
+## Troubleshooting
+
+**`/usr/bin/env: 'bash\r': No such file or directory`** -- Datei hat
+Windows-Zeilenumbrüche (`\r\n`), z.B. durch einen Windows-Editor oder einen
+Upload im Textmodus. Fix direkt auf dem Server:
+
+```bash
+sed -i 's/\r$//' install-elektron-stack.sh elektron-stack.conf
+./install-elektron-stack.sh
+```
+
+(`dos2unix install-elektron-stack.sh elektron-stack.conf` funktioniert
+genauso, falls installiert.) Für künftige Uploads: in WinSCP den
+Übertragungsmodus auf **Binär** stellen (Transfer Settings -> Transfer mode
+-> Binary) statt "Automatisch"/"Text".
