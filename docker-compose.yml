@@ -98,15 +98,8 @@ services:
       - "./data/faucet-config:/config"
 
   # ------------------------------------------------------------------
-  # Seeder -- DNS seed crawler (elektron-net-seeder). OPTIONAL and still
-  # in its testing phase: the "seeder" profile below means a plain
-  # "docker compose up -d" never builds or starts it. Enable explicitly
-  # with "docker compose --profile seeder up -d --build elektron-net-seeder"
-  # (or install-elektron-stack.sh's INSTALL_SEEDER=true) once
-  # elektron-net-seeder/.env is filled in and SEEDER_HOST has its own NS
-  # delegation in DNS -- see README "Seeder (optional, Testphase)".
-  # Only publishes DNS (53); it never listens for P2P, it only makes
-  # outbound connections to crawl peers.
+  # Seeder -- DNS seed crawler. OPTIONAL/testing (see README): the
+  # "seeder" profile keeps it out of a plain "docker compose up -d".
   # ------------------------------------------------------------------
   elektron-net-seeder:
     container_name: elektron-net-seeder

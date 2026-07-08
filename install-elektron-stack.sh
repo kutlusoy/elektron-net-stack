@@ -127,26 +127,14 @@ FAUCET_DEFAULT_LANG="de"
 FAUCET_EXPLORER_URL=""                        # optional, shown as a link after a successful claim
 
 # --- Seeder (elektron-net-seeder) -- OPTIONAL, still in testing ---
-# false (default) = not cloned, not built, not started -- a plain
-# "docker compose up -d" behaves exactly as before (the service carries a
-# Compose "seeder" profile). true = additionally clone+build
-# elektron-net-seeder and start it via that profile. Needs its own
-# authoritative NS delegation for SEEDER_HOST in DNS (separate from
-# NODE_DOMAIN's plain A/AAAA record) and opens port 53 -- leave this false
-# until you've read README "Seeder (optional, Testphase)" and are ready to
-# do first tests.
-INSTALL_SEEDER="false"
+INSTALL_SEEDER="false"                        # true = clone/build/start via the "seeder" Compose profile; needs NS delegation for SEEDER_HOST, see README
 SEEDER_HOST="seeder.elektron-net.org"
 SEEDER_NS="${NODE_DOMAIN}"
 SEEDER_MBOX="admin.elektron-net.org"
 SEEDER_DNS_PORT="53"
 SEEDER_THREADS="96"
 SEEDER_DNS_THREADS="4"
-# Elektron Net is still a young chain -- a peer only counts as "good" once
-# it reports at least this block height. 70000 gives the network a head
-# start instead of the seeder's built-in mainnet default (350000, tuned for
-# a much older chain), while still excluding peers that are badly stalled.
-SEEDER_MIN_HEIGHT="70000"
+SEEDER_MIN_HEIGHT="70000"                     # young chain -- lower than the seeder's built-in mainnet default of 350000
 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
@@ -1004,17 +992,12 @@ export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_
 # ============================================================================
 # 10b. Seeder deaktivieren, falls INSTALL_SEEDER (wieder) auf false steht
 # ============================================================================
-# Wichtig: ein Compose-Profil zu deaktivieren stoppt von sich aus KEINEN
-# bereits laufenden Container -- "docker compose up -d" ohne "--profile
-# seeder" lässt einen zuvor gestarteten elektron-net-seeder-Container
-# einfach unangetastet weiterlaufen. Ohne dieses Teardown wäre
-# INSTALL_SEEDER=false also kein echtes Deinstallieren, nur ein "nicht neu
-# starten". Named-Service-Aufrufe (stop/rm <service>) ignorieren laut
-# Compose-Doku ohnehin die Profile-Filterung -- funktioniert daher auch
-# ohne "--profile seeder" hier.
+# Ein deaktiviertes Compose-Profil stoppt von sich aus keinen bereits
+# laufenden Container -- ohne dieses Teardown wäre INSTALL_SEEDER=false
+# also kein echtes Deinstallieren.
 if [ "$INSTALL_SEEDER" != "true" ]; then
   if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "elektron-net-seeder"; then
-    log "INSTALL_SEEDER=false -- stoppe und entferne den zuvor gestarteten Seeder-Container (Quellcode und dnsseed.dat/.dump in data/elektron-net-seeder/ bleiben für ein späteres Wiederaktivieren erhalten) ..."
+    log "INSTALL_SEEDER=false -- stoppe und entferne den Seeder-Container (Daten in data/elektron-net-seeder/ bleiben erhalten) ..."
     docker compose stop elektron-net-seeder 2>/dev/null || true
     docker compose rm -f elektron-net-seeder 2>/dev/null || true
   fi
@@ -1052,10 +1035,7 @@ if command -v ufw >/dev/null 2>&1; then
       ufw allow 53/udp comment 'Elektron DNS seeder' || true
       ufw allow 53/tcp comment 'Elektron DNS seeder (TCP-Fallback)' || true
     else
-      # Best-effort: falls Port 53 aus einem vorherigen Lauf mit
-      # INSTALL_SEEDER=true noch offen ist, symmetrisch wieder schließen.
-      # "|| true", da ufw hier auch dann fehlerfrei durchlaufen soll, wenn
-      # die Regel gar nicht existiert (z.B. beim allerersten Lauf).
+      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
       ufw delete allow 53/udp 2>/dev/null || true
       ufw delete allow 53/tcp 2>/dev/null || true
     fi
@@ -1124,7 +1104,12 @@ cat <<SUMMARY
    User:     ${FAUCET_ADMIN_USER}
    Passwort: ${FAUCET_ADMIN_PASS}
 
- Seeder (DNS-Crawler, optional/Testphase): $( [ "$INSTALL_SEEDER" = "true" ] && echo "aktiv -- ${SEEDER_HOST} (NS: ${SEEDER_NS}, Port 53)" || echo "nicht installiert -- INSTALL_SEEDER=true setzen zum Aktivieren, siehe README" )
+ Seeder (DNS-Crawler, optional):$( [ "$INSTALL_SEEDER" = "true" ] && echo " aktiv -- ${SEEDER_HOST} (NS: ${SEEDER_NS})" || echo " nicht installiert (INSTALL_SEEDER=true zum Aktivieren)" )
+$( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_SUMMARY
+   Container: elektron-net-seeder, Port 53
+   Daten:     ${STACK_DIR}/data/elektron-net-seeder/
+SEEDER_SUMMARY
+)
 
  Pool-Wallet-Adresse:   ${POOL_ADDR}
  Faucet-Wallet-Adresse: ${FAUCET_ADDR}
@@ -1180,17 +1165,10 @@ cat <<SUMMARY
     z.B. auf ${NODE_DOMAIN} -- viele Peers werten das bei der Node-Reputation
     positiv.
 $( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_NEXT
- 8. Seeder testen, BEVOR du ihn produktiv bewirbst (z.B. als seednode in
-    elektron-net.conf oder öffentlich verlinkst):
-    - NS-Delegation für ${SEEDER_HOST} prüfen: dig -t NS ${SEEDER_HOST}
-      muss auf ${SEEDER_NS} zeigen.
-    - Direkt gegen den Container fragen (funktioniert auch schon VOR
-      propagierter NS-Delegation): dig @${SERVER_IP} -p 53 ${SEEDER_HOST}
-    - Logs beobachten, bis die ersten Peers gecrawlt wurden:
-      docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
-    - dnsseed.dat/dnsseed.dump liegen in
-      ${STACK_DIR}/data/elektron-net-seeder/ -- dnsseed.dump zeigt den
-      aktuellen Crawl-Status aller bekannten Peers.
+ 8. Seeder testen, bevor du ihn produktiv verlinkst:
+    dig -t NS ${SEEDER_HOST}            (muss auf ${SEEDER_NS} zeigen)
+    dig @${SERVER_IP} -p 53 ${SEEDER_HOST}   (geht auch vor propagierter Delegation)
+    docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
 SEEDER_NEXT
 )
 

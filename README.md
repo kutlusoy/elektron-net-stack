@@ -781,35 +781,21 @@ Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
 ## Seeder (optional, Testphase)
 
 [`elektron-net-seeder`](https://github.com/kutlusoy/elektron-net-seeder) ist
-ein DNS-Seed-Crawler (ein klassischer Bitcoin-`dnsseed`-Fork): er verbindet
-sich laufend zu bekannten Elektron-Net-Peers, prüft ihre Erreichbarkeit und
-beantwortet DNS-Anfragen mit einer Liste aktuell gut erreichbarer Nodes --
-genau das, was `elektron-qt`/`elektrond` beim ersten Start abfragen, um ohne
-fest einprogrammierte Adressliste ins Netzwerk zu finden.
+ein DNS-Seed-Crawler (Bitcoin-`dnsseed`-Fork): crawlt bekannte Peers und
+beantwortet DNS-Anfragen mit einer Liste aktuell erreichbarer Nodes -- das
+nutzen `elektron-qt`/`elektrond` zur Peer-Discovery ohne fest
+einprogrammierte Adressliste.
 
-**Ressourcenbedarf auf Hetzner:** sehr gering. Laut Upstream-README nur "a
-few tens of megabytes" RAM und niedrige CPU-Last -- die vielen Crawler-Threads
-(Default 96) sind I/O-gebunden (warten auf TCP-Antworten der gecrawlten
-Peers), nicht CPU-intensiv. Passt problemlos neben Node/Pool/Faucet auf
-denselben Server, ohne dass zusätzliche Hetzner-Ressourcen nötig wären. Es
-gibt **keinen** eigenen P2P-Port zum Veröffentlichen -- der Seeder verbindet
-sich nur ausgehend zu anderen Nodes, er nimmt selbst keine P2P-Verbindungen
-an. Einzig offener Port: **53 (DNS, UDP + TCP)**.
+Ressourcenbedarf: gering (wenige zehn MB RAM, I/O- statt CPU-gebunden),
+passt problemlos neben Node/Pool/Faucet. Kein eigener P2P-Port -- nur
+ausgehende Verbindungen. Einzig offener Port: **53 (DNS, UDP+TCP)**.
 
-**Warum vorerst optional:** Der Seeder braucht eine eigene, von den anderen
-drei Domains unabhängige DNS-Konfiguration -- eine **NS-Delegation** (nicht
-nur einen A/AAAA-Eintrag wie `NODE_DOMAIN`/`POOL_DOMAIN`/`FAUCET_DOMAIN`),
-damit `SEEDER_HOST` überhaupt als autoritativer DNS-Seed funktioniert. Das
-ist ein anderer, fehleranfälligerer DNS-Schritt als die übrigen drei Domains
-und will vor dem produktiven Einsatz (z.B. Verlinken als `seednode=` in
-`elektron.conf` oder öffentliches Bewerben) erst getestet sein -- daher ist
-`INSTALL_SEEDER` standardmäßig `false`: ein normaler Stack-Lauf klont, baut
-und startet den Seeder gar nicht (das zugehörige Docker-Compose-Profil
-`seeder` bleibt inaktiv).
+Standardmäßig **nicht installiert** (`INSTALL_SEEDER=false`), weil
+`SEEDER_HOST` eine eigene **NS-Delegation** braucht (kein simpler
+A/AAAA-Eintrag wie bei den anderen drei Domains) -- fehleranfälliger und
+sollte vor produktivem Einsatz getestet werden.
 
 ### Aktivieren
-
-Entweder in `elektron-stack.conf` setzen:
 
 ```ini
 INSTALL_SEEDER=true
@@ -818,123 +804,58 @@ SEEDER_NS=node1.elektron-net.org
 SEEDER_MBOX=admin.elektron-net.org
 ```
 
-oder beim interaktiven Lauf von `./install-elektron-stack.sh` die
-entsprechende Frage mit `j` beantworten. `SEEDER_NS` kann derselbe Server
-sein wie der Node (`NODE_DOMAIN`) -- er muss nur als autoritativer
-Nameserver für `SEEDER_HOST` in DNS eingetragen sein (siehe unten).
-`SEEDER_MBOX` ist eine E-Mail-Adresse für den SOA-Record, mit `@` als `.`
-geschrieben (z.B. `admin.elektron-net.org` für `admin@elektron-net.org`).
+oder interaktiv die Frage im Skript mit `j` beantworten. `SEEDER_NS` kann
+derselbe Server wie der Node sein, muss aber als autoritativer Nameserver
+für `SEEDER_HOST` eingetragen sein (siehe unten). `SEEDER_MBOX`: E-Mail für
+den SOA-Record, `@` als `.` geschrieben.
 
-Ein erneuter Lauf mit `INSTALL_SEEDER=true` klont `elektron-net-seeder`,
-schreibt `elektron-net-seeder/.env`, baut das Image und startet den
-Container zusätzlich zum Rest des Stacks -- alles andere (Node, Pool,
-Faucet) bleibt unverändert, wie bei jedem Rerun. `docker-compose.yml` wird
-bei jedem Lauf komplett neu geschrieben, aber die Service-Blöcke der
-anderen Container bleiben dabei Byte-für-Byte identisch -- Compose erkennt
-also keine Konfigurationsänderung an ihnen und fasst sie nicht an
-(kein Neustart, kein Rebuild, kein Downtime für Node/Pool/Faucet/Caddy).
-Einzige Voraussetzung: `AUTO_UPDATE_REPOS` bleibt auf `false` (Default) und
-du änderst beim selben Lauf keine anderen Einstellungen -- sonst würde
-natürlich genau der geänderte Service neu gebaut, wie bei jedem normalen
-Rerun auch ohne Seeder.
+Ein Rerun klont `elektron-net-seeder`, schreibt dessen `.env`, baut und
+startet den Container zusätzlich -- Node/Pool/Faucet bleiben unverändert
+(Compose erkennt keine Änderung an deren Service-Blöcken).
+`docker-compose.yml` musst du nicht separat hochladen, das Skript schreibt
+sie bei jedem Lauf selbst.
 
-### Wieder deaktivieren ("deinstallieren")
+### Wieder deaktivieren
 
-`INSTALL_SEEDER` wieder auf `false` setzen (in `elektron-stack.conf`, oder
-bei der interaktiven Frage mit `n`/Enter antworten) und
-`./install-elektron-stack.sh` erneut laufen lassen reicht aus -- das Skript
-kümmert sich dabei selbst um einen sauberen Rückbau, **bevor** es
-kein Compose-`up` mehr für den Seeder ausführt:
+`INSTALL_SEEDER=false` + Rerun genügt: das Skript stoppt/entfernt den
+Container und schließt Port 53 wieder (ein Compose-Profil allein stoppt
+keinen bereits laufenden Container, daher macht das Skript diesen Schritt
+explizit). Quellcode, `.env` und `dnsseed.dat`/`.dump` bleiben für ein
+späteres Wiederaktivieren erhalten -- komplett entfernen:
+`rm -rf elektron-net-seeder data/elektron-net-seeder`.
 
-- stoppt und entfernt einen zuvor gestarteten `elektron-net-seeder`-Container
-  (ein reines Deaktivieren des Compose-Profils allein würde einen bereits
-  laufenden Container sonst einfach unangetastet weiterlaufen lassen --
-  das Skript macht diesen Schritt explizit)
-- schließt Port 53 (UDP+TCP) in `ufw` wieder, sofern `FIREWALL_AUTO_CONFIGURE=true`
-  (Hetzner Cloud-Firewall-Panel bitte weiterhin manuell prüfen/anpassen)
-
-**Bleibt bewusst erhalten**, damit ein späteres Wiederaktivieren nicht bei
-null anfängt: der geklonte Quellcode in `elektron-net-seeder/`, die
-`.env`-Datei darin, und vor allem `data/elektron-net-seeder/dnsseed.dat` /
-`dnsseed.dump` (der bisherige Crawl-Fortschritt). Willst du auch das
-vollständig entfernen: `rm -rf elektron-net-seeder data/elektron-net-seeder`
-nach dem Deaktivieren.
-
-Ganz ohne das Skript geht es genauso manuell, falls du schneller nur diesen
-einen Container anfassen willst:
-
+Manuell, ohne Skript:
 ```bash
-docker compose stop elektron-net-seeder
-docker compose rm -f elektron-net-seeder
-sudo ufw delete allow 53/udp
-sudo ufw delete allow 53/tcp
+docker compose stop elektron-net-seeder && docker compose rm -f elektron-net-seeder
+sudo ufw delete allow 53/udp && sudo ufw delete allow 53/tcp
 ```
 
 ### DNS-Delegation einrichten
 
-**Wichtiger Unterschied zu den anderen drei Domains:** Ein A/AAAA-Record
-(wie bei `NODE_DOMAIN`/`POOL_DOMAIN`/`FAUCET_DOMAIN`) reicht hier NICHT.
-Ein A/AAAA-Record auf `SEEDER_HOST` würde nur bedeuten "diese Domain zeigt
-auf diese feste IP" -- die Anfrage wird dabei direkt von deinem normalen
-DNS-Anbieter (z.B. world4you) beantwortet und erreicht den Seeder-Container
-**nie**, egal ob er läuft oder nicht.
-
-Damit `SEEDER_HOST` tatsächlich als DNS-Seed funktioniert, muss die Zone
-per **NS-Record** an einen bereits auflösenden Nameserver delegiert werden
--- genau der Mechanismus, den jeder "echte" DNS-Seed nutzt (z.B.
-`seed.bitcoin.sipa.be`). `node1.elektron-net.org` hat bereits eigene
-A/AAAA-Records (aus Schritt 1 oben) und eignet sich daher direkt als
-`SEEDER_NS`:
+Anders als bei den anderen drei Domains reicht kein A/AAAA-Record -- der
+würde von deinem normalen DNS-Anbieter beantwortet und den Seeder-Container
+nie erreichen. Stattdessen ein **NS-Record**:
 
 | Subdomain | Typ | Ziel |
 |---|---|---|
-| `seeder.elektron-net.org` | **NS** | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+| `seeder.elektron-net.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
 
-**Falls für `SEEDER_HOST` bereits eigene A/AAAA-Records angelegt wurden**
-(z.B. weil das vor diesem Abschnitt naheliegend schien): die müssen
-wieder **entfernt** werden. NS- und A/AAAA-Records für denselben Namen
-gleichzeitig ergeben eine widersprüchliche ("lame") Delegation -- je nach
-DNS-Anbieter gewinnt dann mal der A-Record (Anfragen erreichen den Seeder
-nie), mal wird die Delegation ignoriert. Nur der NS-Record darf für
-`seeder.elektron-net.org` stehen bleiben.
-
-Prüfen, sobald propagiert:
-
-```bash
-dig -t NS seeder.elektron-net.org
-```
-
-Die Antwort sollte den NS-Eintrag zeigen, keinen A/AAAA-Eintrag mehr. Bis
-die Delegation propagiert ist, kannst du trotzdem direkt gegen den
-Container testen (siehe unten) -- dafür sind vorhandene A/AAAA-Records auf
-`SEEDER_HOST` sogar praktisch, aber eben nur für diesen manuellen Test,
-nicht für den eigentlichen Seed-Betrieb.
+Falls schon A/AAAA-Records für `SEEDER_HOST` existieren: entfernen -- NS und
+A/AAAA gleichzeitig ergeben eine widersprüchliche Delegation. Prüfen:
+`dig -t NS seeder.elektron-net.org`.
 
 ### Erste Tests, bevor es live geht
 
 ```bash
-# Direkt gegen den laufenden Container fragen (per IP oder, falls noch
-# A/AAAA-Records existieren, auch per Name) -- funktioniert auch schon VOR
-# propagierter NS-Delegation, da es den Server direkt anspricht statt über
-# die normale DNS-Auflösungskette zu gehen:
-dig @<SERVER_IP> -p 53 seeder.elektron-net.org
-
-# Sobald die NS-Delegation oben propagiert UND die alten A/AAAA-Records
-# entfernt sind, sollte auch die ganz normale Auflösung funktionieren:
-dig seeder.elektron-net.org
-
-# Logs beobachten -- die ersten Antworten dauern etwas, der Seeder muss
-# erst genug Peers erfolgreich crawlen, bevor GetIPList etwas liefert:
+dig @<SERVER_IP> -p 53 seeder.elektron-net.org   # geht schon vor propagierter Delegation
+dig seeder.elektron-net.org                       # normale Auflösung, sobald propagiert
 docker compose logs -f elektron-net-seeder
-
-# Crawl-Status aller bekannten Peers (IP, letzter Kontakt, Erfolgsrate):
-cat data/elektron-net-seeder/dnsseed.dump
+cat data/elektron-net-seeder/dnsseed.dump         # Crawl-Status aller bekannten Peers
 ```
 
-Erst wenn `dig seeder.elektron-net.org` (die ganz normale Auflösung, nicht
-nur `dig @<SERVER_IP>`) zuverlässig IP-Adressen zurückgibt und
-`dnsseed.dump` plausible, aktuelle Peers zeigt, würde ich es als
-`seednode=`/`dnsseed=` produktiv verlinken oder öffentlich bewerben.
+Erst wenn die normale Auflösung zuverlässig IPs liefert und `dnsseed.dump`
+plausible Peers zeigt, würde ich es produktiv als `seednode=`/`dnsseed=`
+verlinken.
 
 ### Konfigurierbare Felder (`elektron-net-seeder/.env`)
 
@@ -967,8 +888,8 @@ Ein gecrawlter Peer muss zuerst **alle** dieser Hart-Filter bestehen:
 | Port | exakt `8333` (bzw. `SEEDER_P2P_PORT`) |
 | Services | bietet `NODE_NETWORK` an (voller Node) |
 | Routability | öffentliche, routbare IP (keine privaten/lokalen Adressen) |
-| Protokoll-Version | ≥ 70017 -- fest im Seeder-Quellcode (`db.h`, `REQUIRE_VERSION`), da Elektron Net keine älteren Versionen kennt; jeder Peer darunter gehört nicht zum Netzwerk |
-| Blockhöhe | ≥ `SEEDER_MIN_HEIGHT` (Default `70000` -- bewusst niedrig gehalten, da Elektron Net noch eine junge Chain ist und Starthilfe braucht, statt des eingebauten Mainnet-Standards von 350000) |
+| Protokoll-Version | ≥ 70017 -- fest im Seeder-Quellcode (`db.h`, `REQUIRE_VERSION`) |
+| Blockhöhe | ≥ `SEEDER_MIN_HEIGHT` (Default `70000`, statt des Mainnet-Standards 350000) |
 
 Danach genügt **eine** von mehreren Zuverlässigkeits-Bedingungen: entweder
 der allererste erfolgreiche Kontakt bei einem neuen Peer (Vertrauensvorschuss
@@ -980,11 +901,9 @@ bis ein späterer fehlgeschlagener Kontakt ihn wieder aus der Liste entfernt.
 
 ### StartOS-Variante
 
-Es gibt zusätzlich [`elektron-seeder-startos`](https://github.com/kutlusoy/elektron-seeder-startos),
-einen StartOS-Service-Wrapper für denselben Seeder (z.B. für einen
-Heim-Server hinter FritzBox+DynDNS). Diese Docker-Compose-Integration hier
-ist davon unabhängig und wird aktuell bevorzugt weiterentwickelt -- die
-StartOS-Variante wird vorerst nicht aktiv gepflegt.
+Es gibt zusätzlich [`elektron-seeder-startos`](https://github.com/kutlusoy/elektron-seeder-startos)
+für StartOS (z.B. Heimserver via FritzBox+DynDNS) -- unabhängig von dieser
+Integration, aktuell nicht aktiv gepflegt.
 
 ## Wichtig
 
