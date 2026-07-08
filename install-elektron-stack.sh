@@ -664,10 +664,10 @@ services:
     networks:
       - backend
     ports:
-      - "__SERVER_IP__:53:53/udp"
-      - "__SERVER_IP__:53:53/tcp"
-      - "[__SERVER_IPV6__]:53:53/udp"
-      - "[__SERVER_IPV6__]:53:53/tcp"
+      - "<SERVER_IP>:53:53/udp"
+      - "<SERVER_IP>:53:53/tcp"
+      - "[<SERVER_IPV6>]:53:53/udp"
+      - "[<SERVER_IPV6>]:53:53/tcp"
     env_file: ./elektron-net-seeder/.env
     volumes:
       - "./data/elektron-net-seeder:/data"
@@ -698,7 +698,7 @@ COMPOSE_EOF
 # Seeder-Ports an die konkrete Server-IP binden statt an die Wildcard-Adresse
 # -- vermeidet eine Kollision mit systemd-resolved (lauscht typischerweise
 # nur auf 127.0.0.53/54:53, nicht auf der öffentlichen IP).
-sed -i "s/__SERVER_IP__/${SERVER_IP}/g; s/__SERVER_IPV6__/${SERVER_IPV6}/g" docker-compose.yml
+sed -i "s/<SERVER_IP>/${SERVER_IP}/g; s/<SERVER_IPV6>/${SERVER_IPV6}/g" docker-compose.yml
 
 # ============================================================================
 # 6. Caddyfile
