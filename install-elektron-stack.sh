@@ -126,6 +126,23 @@ FAUCET_PER_IP_COOLDOWN_H="1"
 FAUCET_DEFAULT_LANG="de"
 FAUCET_EXPLORER_URL=""                        # optional, shown as a link after a successful claim
 
+# --- Seeder (elektron-net-seeder) -- OPTIONAL, still in testing ---
+# false (default) = not cloned, not built, not started -- a plain
+# "docker compose up -d" behaves exactly as before (the service carries a
+# Compose "seeder" profile). true = additionally clone+build
+# elektron-net-seeder and start it via that profile. Needs its own
+# authoritative NS delegation for SEEDER_HOST in DNS (separate from
+# NODE_DOMAIN's plain A/AAAA record) and opens port 53 -- leave this false
+# until you've read README "Seeder (optional, Testphase)" and are ready to
+# do first tests.
+INSTALL_SEEDER="false"
+SEEDER_HOST="seeder.elektron-net.org"
+SEEDER_NS="${NODE_DOMAIN}"
+SEEDER_MBOX="admin.elektron-net.org"
+SEEDER_DNS_PORT="53"
+SEEDER_THREADS="96"
+SEEDER_DNS_THREADS="4"
+
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
 # (so an uploaded file can only ever set plain values, never run code).
@@ -140,7 +157,8 @@ FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
 FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN_PASS
 FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
-FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL"
+FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL
+INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -255,6 +273,12 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   ask FAUCET_HCAPTCHA_SECRET "hCaptcha Secret-Key (optional)"
   log "Alle Passwörter/Secrets (JWT_SECRET, DB-Passwörter, Wallet-Passphrase, RPC-Passwort,"
   log "Faucet-Admin-Passwort) werden gleich automatisch generiert, sofern nicht per Config-Datei vorgegeben."
+  ask_yes_no INSTALL_SEEDER "Seeder (DNS-Crawler, optional, noch in Testphase) zusätzlich installieren? Siehe README 'Seeder (optional, Testphase)'"
+  if [ "$INSTALL_SEEDER" = "true" ]; then
+    ask SEEDER_HOST "Hostname des DNS-Seeds (braucht eigene NS-Delegation in DNS, siehe README)"
+    ask SEEDER_NS   "Hostname des Nameservers für den Seed"
+    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.elektron-net.org)"
+  fi
 else
   log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
 fi
@@ -443,8 +467,10 @@ clone_or_skip "elektron-net"
 clone_or_skip "elektron-net-ppool"
 clone_or_skip "elektron-net-ppool-ui"
 clone_or_skip "elektron-net-faucet"
+[ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 
 mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config external-wallets
+[ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
 
 # ============================================================================
 # 2. elektron-net: Dockerfile + Entrypoint (existieren im Repo noch nicht)
@@ -635,6 +661,22 @@ services:
     volumes:
       - "./data/faucet-config:/config"
 
+  elektron-net-seeder:
+    container_name: elektron-net-seeder
+    profiles:
+      - seeder
+    build:
+      context: ./elektron-net-seeder
+    restart: unless-stopped
+    networks:
+      - backend
+    ports:
+      - "53:53/udp"
+      - "53:53/tcp"
+    env_file: ./elektron-net-seeder/.env
+    volumes:
+      - "./data/elektron-net-seeder:/data"
+
   caddy:
     container_name: elektron-caddy
     image: caddy:2-alpine
@@ -776,6 +818,33 @@ FAUCET_SENDER_ADDR=
 FAUCET_EXPLORER_URL=${FAUCET_EXPLORER_URL}
 FAUCET_DEFAULT_LANG=${FAUCET_DEFAULT_LANG}
 ENV_EOF
+
+# ============================================================================
+# 8b. elektron-net-seeder/.env -- nur falls INSTALL_SEEDER=true
+# ============================================================================
+if [ "$INSTALL_SEEDER" = "true" ]; then
+  log "Schreibe elektron-net-seeder/.env ..."
+  cat > elektron-net-seeder/.env <<ENV_EOF
+SEEDER_HOST=${SEEDER_HOST}
+SEEDER_NS=${SEEDER_NS}
+SEEDER_MBOX=${SEEDER_MBOX}
+SEEDER_DNS_PORT=${SEEDER_DNS_PORT}
+SEEDER_BIND_ADDRESS=::
+SEEDER_THREADS=${SEEDER_THREADS}
+SEEDER_DNS_THREADS=${SEEDER_DNS_THREADS}
+SEEDER_P2P_PORT=
+SEEDER_MAGIC=
+SEEDER_MIN_HEIGHT=
+SEEDER_TOR_PROXY=
+SEEDER_IPV4_PROXY=
+SEEDER_IPV6_PROXY=
+SEEDER_TESTNET=false
+SEEDER_WIPE_BAN=false
+SEEDER_WIPE_IGNORE=false
+SEEDER_EXTRA_SEEDS=
+SEEDER_FILTERS=
+ENV_EOF
+fi
 
 # Docker Compose braucht eine .env im Projekt-Root, um ${FAUCET_DB_*} in
 # docker-compose.yml aufzulösen -- Symlink hält beide Dateien synchron.
@@ -930,8 +999,14 @@ export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_
 # ============================================================================
 # 11. Rest des Stacks hochfahren
 # ============================================================================
-log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy) ..."
-docker compose up -d --build
+COMPOSE_PROFILE_ARGS=""
+EXTRA_SERVICES_LABEL=""
+if [ "$INSTALL_SEEDER" = "true" ]; then
+  COMPOSE_PROFILE_ARGS="--profile seeder"
+  EXTRA_SERVICES_LABEL=", seeder"
+fi
+log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA_SERVICES_LABEL}) ..."
+docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
 # ============================================================================
 # 12. Firewall
@@ -949,14 +1024,18 @@ if command -v ufw >/dev/null 2>&1; then
     ufw allow 3333/tcp comment 'Elektron PPLNS Stratum' || true
     ufw allow 80/tcp  || true
     ufw allow 443/tcp || true
+    if [ "$INSTALL_SEEDER" = "true" ]; then
+      ufw allow 53/udp comment 'Elektron DNS seeder' || true
+      ufw allow 53/tcp comment 'Elektron DNS seeder (TCP-Fallback)' || true
+    fi
     ufw reload || true
   else
-    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp 3333/tcp 80/tcp 443/tcp"
+    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp 3333/tcp 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )"
   fi
 else
-  warn "ufw nicht gefunden -- Ports 8333, 3333, 80, 443 manuell im Hetzner Cloud Firewall öffnen."
+  warn "ufw nicht gefunden -- Ports 8333, 3333, 80, 443$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' ) manuell im Hetzner Cloud Firewall öffnen."
 fi
-warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben 4 Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
+warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben $( [ "$INSTALL_SEEDER" = "true" ] && echo '5' || echo '4' ) Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
 
 # ============================================================================
 # 13. Zusammenfassung -- wird angezeigt UND dauerhaft in eine Datei
@@ -1014,6 +1093,8 @@ cat <<SUMMARY
    User:     ${FAUCET_ADMIN_USER}
    Passwort: ${FAUCET_ADMIN_PASS}
 
+ Seeder (DNS-Crawler, optional/Testphase): $( [ "$INSTALL_SEEDER" = "true" ] && echo "aktiv -- ${SEEDER_HOST} (NS: ${SEEDER_NS}, Port 53)" || echo "nicht installiert -- INSTALL_SEEDER=true setzen zum Aktivieren, siehe README" )
+
  Pool-Wallet-Adresse:   ${POOL_ADDR}
  Faucet-Wallet-Adresse: ${FAUCET_ADDR}
 
@@ -1067,6 +1148,20 @@ cat <<SUMMARY
     der IPv6-Zeile die "..." -> Reverse DNS, zeigte bei dir "0 Einträge"),
     z.B. auf ${NODE_DOMAIN} -- viele Peers werten das bei der Node-Reputation
     positiv.
+$( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_NEXT
+ 8. Seeder testen, BEVOR du ihn produktiv bewirbst (z.B. als seednode in
+    elektron-net.conf oder öffentlich verlinkst):
+    - NS-Delegation für ${SEEDER_HOST} prüfen: dig -t NS ${SEEDER_HOST}
+      muss auf ${SEEDER_NS} zeigen.
+    - Direkt gegen den Container fragen (funktioniert auch schon VOR
+      propagierter NS-Delegation): dig @${SERVER_IP} -p 53 ${SEEDER_HOST}
+    - Logs beobachten, bis die ersten Peers gecrawlt wurden:
+      docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
+    - dnsseed.dat/dnsseed.dump liegen in
+      ${STACK_DIR}/data/elektron-net-seeder/ -- dnsseed.dump zeigt den
+      aktuellen Crawl-Status aller bekannten Peers.
+SEEDER_NEXT
+)
 
  Hinweis zur privaten Netzwerk-IP (10.0.0.2, Hetzner vSwitch):
  Wird von diesem Stack aktuell nicht gebraucht -- alle Container sprechen

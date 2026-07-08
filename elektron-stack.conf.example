@@ -99,3 +99,18 @@ FAUCET_DEFAULT_LANG=de
 # Optional -- Block-Explorer-Link, der nach einem erfolgreichen Claim
 # angezeigt wird (z. B. https://explorer.example.com):
 FAUCET_EXPLORER_URL=
+
+# --- Seeder (elektron-net-seeder) -- OPTIONAL, noch in Testphase ---
+# false (Default) = wird weder geklont noch gebaut noch gestartet, ein
+# normaler Lauf verhält sich exakt wie zuvor. true = zusätzlich klonen,
+# bauen und starten (über das Compose-Profil "seeder"). Braucht eine eigene
+# NS-Delegation für SEEDER_HOST in DNS (nicht nur einen A/AAAA-Eintrag wie
+# NODE_DOMAIN) und öffnet Port 53 -- erst auf true stellen, wenn du README
+# "Seeder (optional, Testphase)" gelesen hast und bereit für erste Tests bist.
+INSTALL_SEEDER=false
+SEEDER_HOST=seeder.elektron-net.org
+SEEDER_NS=node1.elektron-net.org
+SEEDER_MBOX=admin.elektron-net.org
+SEEDER_DNS_PORT=53
+SEEDER_THREADS=96
+SEEDER_DNS_THREADS=4
