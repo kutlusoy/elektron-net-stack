@@ -1004,6 +1004,25 @@ if [ "$INSTALL_SEEDER" != "true" ]; then
 fi
 
 # ============================================================================
+# 10c. Port 53 für den Seeder freimachen -- systemd-resolved belegt ihn auf
+#      den meisten Ubuntu-Servern per Default (DNSStubListener).
+# ============================================================================
+if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
+   && systemctl is-active --quiet systemd-resolved 2>/dev/null \
+   && ! grep -q '^DNSStubListener=no' /etc/systemd/resolved.conf 2>/dev/null; then
+  log "systemd-resolved belegt Port 53 -- deaktiviere DNSStubListener, damit der Seeder ihn binden kann ..."
+  if grep -q '^#\?DNSStubListener=' /etc/systemd/resolved.conf 2>/dev/null; then
+    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+  else
+    echo 'DNSStubListener=no' >> /etc/systemd/resolved.conf
+  fi
+  systemctl restart systemd-resolved
+  if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q 'stub-resolv.conf'; then
+    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+  fi
+fi
+
+# ============================================================================
 # 11. Rest des Stacks hochfahren
 # ============================================================================
 COMPOSE_PROFILE_ARGS=""

@@ -917,3 +917,16 @@ sed -i 's/\r$//' install-elektron-stack.sh elektron-stack.conf
 genauso, falls installiert.) Für künftige Uploads: in WinSCP den
 Übertragungsmodus auf **Binär** stellen (Transfer Settings -> Transfer mode
 -> Binary) statt "Automatisch"/"Text".
+
+**`bind: address already in use` beim Starten von `elektron-net-seeder`**
+(Port 53) -- `systemd-resolved` belegt Port 53 auf den meisten
+Ubuntu-Servern per Default. `install-elektron-stack.sh` behebt das seit
+neuestem automatisch (`INSTALL_SEEDER=true`); bei einem älteren Stand oder
+manuellem Deploy selbst fixen:
+
+```bash
+sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+sudo systemctl restart systemd-resolved
+sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+docker compose --profile seeder up -d elektron-net-seeder
+```
