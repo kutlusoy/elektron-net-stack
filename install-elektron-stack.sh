@@ -128,9 +128,9 @@ FAUCET_EXPLORER_URL=""                        # optional, shown as a link after 
 
 # --- Seeder (elektron-net-seeder) -- OPTIONAL, still in testing ---
 INSTALL_SEEDER="false"                        # true = clone/build/start via the "seeder" Compose profile; needs NS delegation for SEEDER_HOST, see README
-SEEDER_HOST="seeder.elektron-net.org"
+SEEDER_HOST="seeder.eleknet.org"
 SEEDER_NS="${NODE_DOMAIN}"
-SEEDER_MBOX="admin.elektron-net.org"
+SEEDER_MBOX="admin.eleknet.org"
 SEEDER_DNS_PORT="53"
 SEEDER_THREADS="96"
 SEEDER_DNS_THREADS="4"
@@ -270,7 +270,7 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   if [ "$INSTALL_SEEDER" = "true" ]; then
     ask SEEDER_HOST "Hostname des DNS-Seeds (braucht eigene NS-Delegation in DNS, siehe README)"
     ask SEEDER_NS   "Hostname des Nameservers für den Seed"
-    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.elektron-net.org)"
+    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.eleknet.org)"
   fi
 else
   log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
@@ -1000,6 +1000,25 @@ if [ "$INSTALL_SEEDER" != "true" ]; then
     log "INSTALL_SEEDER=false -- stoppe und entferne den Seeder-Container (Daten in data/elektron-net-seeder/ bleiben erhalten) ..."
     docker compose stop elektron-net-seeder 2>/dev/null || true
     docker compose rm -f elektron-net-seeder 2>/dev/null || true
+  fi
+fi
+
+# ============================================================================
+# 10c. Port 53 für den Seeder freimachen -- systemd-resolved belegt ihn auf
+#      den meisten Ubuntu-Servern per Default (DNSStubListener).
+# ============================================================================
+if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
+   && systemctl is-active --quiet systemd-resolved 2>/dev/null \
+   && ! grep -q '^DNSStubListener=no' /etc/systemd/resolved.conf 2>/dev/null; then
+  log "systemd-resolved belegt Port 53 -- deaktiviere DNSStubListener, damit der Seeder ihn binden kann ..."
+  if grep -q '^#\?DNSStubListener=' /etc/systemd/resolved.conf 2>/dev/null; then
+    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+  else
+    echo 'DNSStubListener=no' >> /etc/systemd/resolved.conf
+  fi
+  systemctl restart systemd-resolved
+  if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q 'stub-resolv.conf'; then
+    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
   fi
 fi
 

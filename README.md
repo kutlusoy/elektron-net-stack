@@ -777,9 +777,9 @@ sollte vor produktivem Einsatz getestet werden.
 
 ```ini
 INSTALL_SEEDER=true
-SEEDER_HOST=seeder.elektron-net.org
+SEEDER_HOST=seeder.eleknet.org
 SEEDER_NS=node1.elektron-net.org
-SEEDER_MBOX=admin.elektron-net.org
+SEEDER_MBOX=admin.eleknet.org
 ```
 
 oder interaktiv die Frage im Skript mit `j` beantworten. `SEEDER_NS` kann
@@ -816,17 +816,17 @@ nie erreichen. Stattdessen ein **NS-Record**:
 
 | Subdomain | Typ | Ziel |
 |---|---|---|
-| `seeder.elektron-net.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+| `seeder.eleknet.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
 
 Falls schon A/AAAA-Records für `SEEDER_HOST` existieren: entfernen -- NS und
 A/AAAA gleichzeitig ergeben eine widersprüchliche Delegation. Prüfen:
-`dig -t NS seeder.elektron-net.org`.
+`dig -t NS seeder.eleknet.org`.
 
 ### Erste Tests, bevor es live geht
 
 ```bash
-dig @<SERVER_IP> -p 53 seeder.elektron-net.org   # geht schon vor propagierter Delegation
-dig seeder.elektron-net.org                       # normale Auflösung, sobald propagiert
+dig @<SERVER_IP> -p 53 seeder.eleknet.org   # geht schon vor propagierter Delegation
+dig seeder.eleknet.org                       # normale Auflösung, sobald propagiert
 docker compose logs -f elektron-net-seeder
 cat data/elektron-net-seeder/dnsseed.dump         # Crawl-Status aller bekannten Peers
 ```
@@ -917,3 +917,16 @@ sed -i 's/\r$//' install-elektron-stack.sh elektron-stack.conf
 genauso, falls installiert.) Für künftige Uploads: in WinSCP den
 Übertragungsmodus auf **Binär** stellen (Transfer Settings -> Transfer mode
 -> Binary) statt "Automatisch"/"Text".
+
+**`bind: address already in use` beim Starten von `elektron-net-seeder`**
+(Port 53) -- `systemd-resolved` belegt Port 53 auf den meisten
+Ubuntu-Servern per Default. `install-elektron-stack.sh` behebt das seit
+neuestem automatisch (`INSTALL_SEEDER=true`); bei einem älteren Stand oder
+manuellem Deploy selbst fixen:
+
+```bash
+sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
+sudo systemctl restart systemd-resolved
+sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+docker compose --profile seeder up -d elektron-net-seeder
+```
