@@ -920,13 +920,12 @@ genauso, falls installiert.) Für künftige Uploads: in WinSCP den
 
 **`bind: address already in use` beim Starten von `elektron-net-seeder`**
 (Port 53) -- `systemd-resolved` belegt Port 53 auf den meisten
-Ubuntu-Servern per Default. `install-elektron-stack.sh` behebt das seit
-neuestem automatisch (`INSTALL_SEEDER=true`); bei einem älteren Stand oder
-manuellem Deploy selbst fixen:
-
-```bash
-sudo sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
-sudo systemctl restart systemd-resolved
-sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-docker compose --profile seeder up -d elektron-net-seeder
-```
+Ubuntu-Servern per Default (`127.0.0.53`/`127.0.0.54`), was mit einer
+Wildcard-Bindung (`0.0.0.0:53`) kollidiert. Der Seeder-Service in
+`docker-compose.yml` bindet deshalb explizit an `SERVER_IP`/`SERVER_IPV6`
+statt an die Wildcard-Adresse -- das umgeht die Kollision komplett, ohne
+`systemd-resolved` anzufassen (und ohne die Nebenwirkung, dass andere
+Container danach plötzlich keine externen Hostnamen mehr auflösen, wie das
+mit einem `DNSStubListener=no`-Fix passieren würde). Tritt der Fehler
+trotzdem auf: prüfen, ob `SERVER_IP`/`SERVER_IPV6` in `elektron-stack.conf`
+mit der tatsächlichen Adresse dieses Servers übereinstimmen.

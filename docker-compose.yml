@@ -100,6 +100,11 @@ services:
   # ------------------------------------------------------------------
   # Seeder -- DNS seed crawler. OPTIONAL/testing (see README): the
   # "seeder" profile keeps it out of a plain "docker compose up -d".
+  # Bound to this server's own public IPs (not the 0.0.0.0 wildcard) so
+  # it doesn't collide with systemd-resolved's loopback-only stub on the
+  # same host. install-elektron-stack.sh fills in <SERVER_IP>/<SERVER_IPV6>
+  # from elektron-stack.conf automatically -- replace them yourself if
+  # deploying this file directly without the script.
   # ------------------------------------------------------------------
   elektron-net-seeder:
     container_name: elektron-net-seeder
@@ -111,8 +116,10 @@ services:
     networks:
       - backend
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "<SERVER_IP>:53:53/udp"
+      - "<SERVER_IP>:53:53/tcp"
+      - "[<SERVER_IPV6>]:53:53/udp"
+      - "[<SERVER_IPV6>]:53:53/tcp"
     env_file: ./elektron-net-seeder/.env
     volumes:
       - "./data/elektron-net-seeder:/data"

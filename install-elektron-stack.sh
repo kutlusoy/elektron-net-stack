@@ -664,8 +664,10 @@ services:
     networks:
       - backend
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "<SERVER_IP>:53:53/udp"
+      - "<SERVER_IP>:53:53/tcp"
+      - "[<SERVER_IPV6>]:53:53/udp"
+      - "[<SERVER_IPV6>]:53:53/tcp"
     env_file: ./elektron-net-seeder/.env
     volumes:
       - "./data/elektron-net-seeder:/data"
@@ -692,6 +694,11 @@ volumes:
   caddy_data:
   caddy_config:
 COMPOSE_EOF
+
+# Seeder-Ports an die konkrete Server-IP binden statt an die Wildcard-Adresse
+# -- vermeidet eine Kollision mit systemd-resolved (lauscht typischerweise
+# nur auf 127.0.0.53/54:53, nicht auf der öffentlichen IP).
+sed -i "s/<SERVER_IP>/${SERVER_IP}/g; s/<SERVER_IPV6>/${SERVER_IPV6}/g" docker-compose.yml
 
 # ============================================================================
 # 6. Caddyfile
@@ -1000,25 +1007,6 @@ if [ "$INSTALL_SEEDER" != "true" ]; then
     log "INSTALL_SEEDER=false -- stoppe und entferne den Seeder-Container (Daten in data/elektron-net-seeder/ bleiben erhalten) ..."
     docker compose stop elektron-net-seeder 2>/dev/null || true
     docker compose rm -f elektron-net-seeder 2>/dev/null || true
-  fi
-fi
-
-# ============================================================================
-# 10c. Port 53 für den Seeder freimachen -- systemd-resolved belegt ihn auf
-#      den meisten Ubuntu-Servern per Default (DNSStubListener).
-# ============================================================================
-if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
-   && systemctl is-active --quiet systemd-resolved 2>/dev/null \
-   && ! grep -q '^DNSStubListener=no' /etc/systemd/resolved.conf 2>/dev/null; then
-  log "systemd-resolved belegt Port 53 -- deaktiviere DNSStubListener, damit der Seeder ihn binden kann ..."
-  if grep -q '^#\?DNSStubListener=' /etc/systemd/resolved.conf 2>/dev/null; then
-    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
-  else
-    echo 'DNSStubListener=no' >> /etc/systemd/resolved.conf
-  fi
-  systemctl restart systemd-resolved
-  if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q 'stub-resolv.conf'; then
-    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
   fi
 fi
 
