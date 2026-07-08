@@ -949,6 +949,7 @@ nur `dig @<SERVER_IP>`) zuverlässig IP-Adressen zurückgibt und
 | `SEEDER_DNS_THREADS` | DNS-Server-Threads | `4` |
 | `SEEDER_P2P_PORT` | P2P-Port der gecrawlten Peers | leer = `8333` (Elektron-Default) |
 | `SEEDER_MAGIC` | Netzwerk-Magic-Bytes (hex) | leer = Elektron-Net-Default |
+| `SEEDER_MIN_HEIGHT` | Mindest-Blockhöhe, ab der ein Peer als "good" gilt | `70000` (siehe unten) |
 | `SEEDER_EXTRA_SEEDS` | Komma-getrennt, ersetzt die eingebaute Startliste | leer |
 | `SEEDER_FILTERS` | Komma-getrennt, erlaubte Service-Flag-Kombinationen | leer (alle) |
 | `SEEDER_TESTNET` / `SEEDER_WIPE_BAN` / `SEEDER_WIPE_IGNORE` | `true`/`false` | `false` |
@@ -956,6 +957,26 @@ nur `dig @<SERVER_IP>`) zuverlässig IP-Adressen zurückgibt und
 `SEEDER_P2P_PORT` und `SEEDER_MAGIC` müssen normalerweise **nicht** gesetzt
 werden -- der Seeder verwendet bereits standardmäßig Elektron Nets eigenen
 P2P-Port (8333) und Netzwerk-Magic, genau wie `elektron-net` selbst.
+
+### Wann gilt ein Peer als "good"? (wird über DNS verteilt)
+
+Ein gecrawlter Peer muss zuerst **alle** dieser Hart-Filter bestehen:
+
+| Prüfung | Bedingung |
+|---|---|
+| Port | exakt `8333` (bzw. `SEEDER_P2P_PORT`) |
+| Services | bietet `NODE_NETWORK` an (voller Node) |
+| Routability | öffentliche, routbare IP (keine privaten/lokalen Adressen) |
+| Protokoll-Version | ≥ 70017 -- fest im Seeder-Quellcode (`db.h`, `REQUIRE_VERSION`), da Elektron Net keine älteren Versionen kennt; jeder Peer darunter gehört nicht zum Netzwerk |
+| Blockhöhe | ≥ `SEEDER_MIN_HEIGHT` (Default `70000` -- bewusst niedrig gehalten, da Elektron Net noch eine junge Chain ist und Starthilfe braucht, statt des eingebauten Mainnet-Standards von 350000) |
+
+Danach genügt **eine** von mehreren Zuverlässigkeits-Bedingungen: entweder
+der allererste erfolgreiche Kontakt bei einem neuen Peer (Vertrauensvorschuss
+für die ersten drei Versuche), oder eine ausreichend hohe Erfolgsquote über
+eines von fünf rollierenden Zeitfenstern (2h/8h/1d/1Woche/1Monat) -- je
+länger das Fenster, desto niedriger die geforderte Quote, aber desto mehr
+Stichproben werden verlangt. Einmal als "good" markiert, bleibt ein Peer es,
+bis ein späterer fehlgeschlagener Kontakt ihn wieder aus der Liste entfernt.
 
 ### StartOS-Variante
 
