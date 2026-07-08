@@ -777,9 +777,9 @@ sollte vor produktivem Einsatz getestet werden.
 
 ```ini
 INSTALL_SEEDER=true
-SEEDER_HOST=seeder.elektron-net.org
+SEEDER_HOST=seeder.eleknet.org
 SEEDER_NS=node1.elektron-net.org
-SEEDER_MBOX=admin.elektron-net.org
+SEEDER_MBOX=admin.eleknet.org
 ```
 
 oder interaktiv die Frage im Skript mit `j` beantworten. `SEEDER_NS` kann
@@ -816,17 +816,17 @@ nie erreichen. Stattdessen ein **NS-Record**:
 
 | Subdomain | Typ | Ziel |
 |---|---|---|
-| `seeder.elektron-net.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+| `seeder.eleknet.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
 
 Falls schon A/AAAA-Records für `SEEDER_HOST` existieren: entfernen -- NS und
 A/AAAA gleichzeitig ergeben eine widersprüchliche Delegation. Prüfen:
-`dig -t NS seeder.elektron-net.org`.
+`dig -t NS seeder.eleknet.org`.
 
 ### Erste Tests, bevor es live geht
 
 ```bash
-dig @<SERVER_IP> -p 53 seeder.elektron-net.org   # geht schon vor propagierter Delegation
-dig seeder.elektron-net.org                       # normale Auflösung, sobald propagiert
+dig @<SERVER_IP> -p 53 seeder.eleknet.org   # geht schon vor propagierter Delegation
+dig seeder.eleknet.org                       # normale Auflösung, sobald propagiert
 docker compose logs -f elektron-net-seeder
 cat data/elektron-net-seeder/dnsseed.dump         # Crawl-Status aller bekannten Peers
 ```

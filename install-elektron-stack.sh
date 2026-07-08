@@ -128,9 +128,9 @@ FAUCET_EXPLORER_URL=""                        # optional, shown as a link after 
 
 # --- Seeder (elektron-net-seeder) -- OPTIONAL, still in testing ---
 INSTALL_SEEDER="false"                        # true = clone/build/start via the "seeder" Compose profile; needs NS delegation for SEEDER_HOST, see README
-SEEDER_HOST="seeder.elektron-net.org"
+SEEDER_HOST="seeder.eleknet.org"
 SEEDER_NS="${NODE_DOMAIN}"
-SEEDER_MBOX="admin.elektron-net.org"
+SEEDER_MBOX="admin.eleknet.org"
 SEEDER_DNS_PORT="53"
 SEEDER_THREADS="96"
 SEEDER_DNS_THREADS="4"
@@ -270,7 +270,7 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   if [ "$INSTALL_SEEDER" = "true" ]; then
     ask SEEDER_HOST "Hostname des DNS-Seeds (braucht eigene NS-Delegation in DNS, siehe README)"
     ask SEEDER_NS   "Hostname des Nameservers für den Seed"
-    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.elektron-net.org)"
+    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.eleknet.org)"
   fi
 else
   log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
