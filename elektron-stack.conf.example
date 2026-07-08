@@ -111,6 +111,11 @@ INSTALL_SEEDER=false
 SEEDER_HOST=seeder.elektron-net.org
 SEEDER_NS=node1.elektron-net.org
 SEEDER_MBOX=admin.elektron-net.org
+# Das Docker-Build (Dockerfile/docker-entrypoint.sh) für den Seeder existiert
+# aktuell nur auf diesem Branch, noch nicht im Default-Branch von
+# elektron-net-seeder gemergt. Leer lassen = normaler Clone ohne
+# Branch-Angabe (sobald gemergt).
+SEEDER_REPO_BRANCH=hetzner
 SEEDER_DNS_PORT=53
 SEEDER_THREADS=96
 SEEDER_DNS_THREADS=4

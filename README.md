@@ -828,8 +828,11 @@ geschrieben (z.B. `admin.elektron-net.org` für `admin@elektron-net.org`).
 Ein erneuter Lauf mit `INSTALL_SEEDER=true` klont `elektron-net-seeder`,
 schreibt `elektron-net-seeder/.env`, baut das Image und startet den
 Container zusätzlich zum Rest des Stacks -- alles andere (Node, Pool,
-Faucet) bleibt unverändert, wie bei jedem Rerun. `docker-compose.yml` wird
-bei jedem Lauf komplett neu geschrieben, aber die Service-Blöcke der
+Faucet) bleibt unverändert, wie bei jedem Rerun. `docker-compose.yml`
+brauchst du dafür **nicht separat hochzuladen** -- das Skript schreibt sie
+komplett selbst (per `cat > docker-compose.yml <<...` direkt im Skript),
+bei jedem Lauf neu, inklusive dem Seeder-Service-Block, sobald du die
+aktuelle `install-elektron-stack.sh` verwendest. Die Service-Blöcke der
 anderen Container bleiben dabei Byte-für-Byte identisch -- Compose erkennt
 also keine Konfigurationsänderung an ihnen und fasst sie nicht an
 (kein Neustart, kein Rebuild, kein Downtime für Node/Pool/Faucet/Caddy).
@@ -837,6 +840,15 @@ Einzige Voraussetzung: `AUTO_UPDATE_REPOS` bleibt auf `false` (Default) und
 du änderst beim selben Lauf keine anderen Einstellungen -- sonst würde
 natürlich genau der geänderte Service neu gebaut, wie bei jedem normalen
 Rerun auch ohne Seeder.
+
+**Wichtig, solange die Seeder-Integration noch in Testphase ist:** das
+Docker-Build für `elektron-net-seeder` (Dockerfile/docker-entrypoint.sh)
+liegt aktuell nur auf dessen `hetzner`-Branch, noch nicht im Default-Branch
+des Repos. `SEEDER_REPO_BRANCH` (Default `hetzner`) sorgt dafür, dass das
+Skript gezielt diesen Branch klont (`git clone -b hetzner ...`) -- ohne das
+würde ein normaler Clone den Default-Branch ohne Dockerfile holen, und der
+Build würde fehlschlagen. Sobald `hetzner` in den Default-Branch gemergt
+ist, kannst du `SEEDER_REPO_BRANCH` leer lassen.
 
 ### Wieder deaktivieren ("deinstallieren")
 
