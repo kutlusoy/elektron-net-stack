@@ -841,15 +841,6 @@ du änderst beim selben Lauf keine anderen Einstellungen -- sonst würde
 natürlich genau der geänderte Service neu gebaut, wie bei jedem normalen
 Rerun auch ohne Seeder.
 
-**Wichtig, solange die Seeder-Integration noch in Testphase ist:** das
-Docker-Build für `elektron-net-seeder` (Dockerfile/docker-entrypoint.sh)
-liegt aktuell nur auf dessen `hetzner`-Branch, noch nicht im Default-Branch
-des Repos. `SEEDER_REPO_BRANCH` (Default `hetzner`) sorgt dafür, dass das
-Skript gezielt diesen Branch klont (`git clone -b hetzner ...`) -- ohne das
-würde ein normaler Clone den Default-Branch ohne Dockerfile holen, und der
-Build würde fehlschlagen. Sobald `hetzner` in den Default-Branch gemergt
-ist, kannst du `SEEDER_REPO_BRANCH` leer lassen.
-
 ### Wieder deaktivieren ("deinstallieren")
 
 `INSTALL_SEEDER` wieder auf `false` setzen (in `elektron-stack.conf`, oder

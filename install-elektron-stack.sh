@@ -139,11 +139,6 @@ INSTALL_SEEDER="false"
 SEEDER_HOST="seeder.elektron-net.org"
 SEEDER_NS="${NODE_DOMAIN}"
 SEEDER_MBOX="admin.elektron-net.org"
-# The seeder's Docker build (Dockerfile/docker-entrypoint.sh) currently only
-# exists on this branch, not yet merged into elektron-net-seeder's default
-# branch -- clone_or_skip below passes this to "git clone -b". Once merged,
-# set this blank to go back to a plain default-branch clone.
-SEEDER_REPO_BRANCH="hetzner"
 SEEDER_DNS_PORT="53"
 SEEDER_THREADS="96"
 SEEDER_DNS_THREADS="4"
@@ -168,7 +163,7 @@ FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN
 FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
 FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL
-INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_REPO_BRANCH SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS SEEDER_MIN_HEIGHT"
+INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS SEEDER_MIN_HEIGHT"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -445,10 +440,7 @@ update_if_enabled() {
 }
 
 clone_or_skip() {
-  local repo="$1" branch="${2:-}"
-  local branch_args=()
-  [ -n "$branch" ] && branch_args=(-b "$branch")
-
+  local repo="$1"
   if [ -d "$repo/.git" ]; then
     log "Repo $repo existiert schon (vollständiger git-Klon), überspringe Neu-Klonen."
     update_if_enabled "$repo"
@@ -466,13 +458,13 @@ clone_or_skip() {
     log "Verzeichnis $repo existiert schon und ist nicht leer -- klone Upstream in ein Temp-Verzeichnis und merge non-destruktiv rein."
     local tmp
     tmp="$(mktemp -d)"
-    git clone "${branch_args[@]}" "https://github.com/${GITHUB_USER}/${repo}.git" "$tmp"
+    git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$tmp"
     rm -rf "$tmp/.git"
     cp -rn "$tmp"/. "$repo"/
     rm -rf "$tmp"
   else
-    log "Klone $repo${branch:+ (Branch: $branch)} ..."
-    git clone "${branch_args[@]}" "https://github.com/${GITHUB_USER}/${repo}.git" "$repo"
+    log "Klone $repo ..."
+    git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$repo"
   fi
 }
 
@@ -480,7 +472,7 @@ clone_or_skip "elektron-net"
 clone_or_skip "elektron-net-ppool"
 clone_or_skip "elektron-net-ppool-ui"
 clone_or_skip "elektron-net-faucet"
-[ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder" "$SEEDER_REPO_BRANCH"
+[ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 
 mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config external-wallets
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
