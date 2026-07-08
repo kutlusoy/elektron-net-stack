@@ -813,7 +813,7 @@ Entweder in `elektron-stack.conf` setzen:
 
 ```ini
 INSTALL_SEEDER=true
-SEEDER_HOST=seed.elektron-net.org
+SEEDER_HOST=seeder.elektron-net.org
 SEEDER_NS=node1.elektron-net.org
 SEEDER_MBOX=admin.elektron-net.org
 ```
@@ -832,30 +832,56 @@ Faucet) bleibt unverändert, wie bei jedem Rerun.
 
 ### DNS-Delegation einrichten
 
-Anders als bei den anderen drei Domains reicht hier kein A-Record. Du
-brauchst einen **NS-Record**, der die Zone `SEEDER_HOST` an `SEEDER_NS`
-delegiert (das ist derselbe Mechanismus wie bei jedem "echten" DNS-Seed,
-z.B. `seed.bitcoin.sipa.be`). Bei world4you (oder deinem DNS-Anbieter):
+**Wichtiger Unterschied zu den anderen drei Domains:** Ein A/AAAA-Record
+(wie bei `NODE_DOMAIN`/`POOL_DOMAIN`/`FAUCET_DOMAIN`) reicht hier NICHT.
+Ein A/AAAA-Record auf `SEEDER_HOST` würde nur bedeuten "diese Domain zeigt
+auf diese feste IP" -- die Anfrage wird dabei direkt von deinem normalen
+DNS-Anbieter (z.B. world4you) beantwortet und erreicht den Seeder-Container
+**nie**, egal ob er läuft oder nicht.
+
+Damit `SEEDER_HOST` tatsächlich als DNS-Seed funktioniert, muss die Zone
+per **NS-Record** an einen bereits auflösenden Nameserver delegiert werden
+-- genau der Mechanismus, den jeder "echte" DNS-Seed nutzt (z.B.
+`seed.bitcoin.sipa.be`). `node1.elektron-net.org` hat bereits eigene
+A/AAAA-Records (aus Schritt 1 oben) und eignet sich daher direkt als
+`SEEDER_NS`:
 
 | Subdomain | Typ | Ziel |
 |---|---|---|
-| `seed.elektron-net.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+| `seeder.elektron-net.org` | **NS** | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+
+**Falls für `SEEDER_HOST` bereits eigene A/AAAA-Records angelegt wurden**
+(z.B. weil das vor diesem Abschnitt naheliegend schien): die müssen
+wieder **entfernt** werden. NS- und A/AAAA-Records für denselben Namen
+gleichzeitig ergeben eine widersprüchliche ("lame") Delegation -- je nach
+DNS-Anbieter gewinnt dann mal der A-Record (Anfragen erreichen den Seeder
+nie), mal wird die Delegation ignoriert. Nur der NS-Record darf für
+`seeder.elektron-net.org` stehen bleiben.
 
 Prüfen, sobald propagiert:
 
 ```bash
-dig -t NS seed.elektron-net.org
+dig -t NS seeder.elektron-net.org
 ```
 
-Die Antwort sollte den NS-Eintrag zeigen. Bis die Delegation propagiert ist,
-kannst du trotzdem direkt gegen den Container testen (siehe unten).
+Die Antwort sollte den NS-Eintrag zeigen, keinen A/AAAA-Eintrag mehr. Bis
+die Delegation propagiert ist, kannst du trotzdem direkt gegen den
+Container testen (siehe unten) -- dafür sind vorhandene A/AAAA-Records auf
+`SEEDER_HOST` sogar praktisch, aber eben nur für diesen manuellen Test,
+nicht für den eigentlichen Seed-Betrieb.
 
 ### Erste Tests, bevor es live geht
 
 ```bash
-# Direkt gegen den laufenden Container fragen -- funktioniert auch schon
-# VOR propagierter NS-Delegation, da es die IP direkt anspricht:
-dig @<SERVER_IP> -p 53 seed.elektron-net.org
+# Direkt gegen den laufenden Container fragen (per IP oder, falls noch
+# A/AAAA-Records existieren, auch per Name) -- funktioniert auch schon VOR
+# propagierter NS-Delegation, da es den Server direkt anspricht statt über
+# die normale DNS-Auflösungskette zu gehen:
+dig @<SERVER_IP> -p 53 seeder.elektron-net.org
+
+# Sobald die NS-Delegation oben propagiert UND die alten A/AAAA-Records
+# entfernt sind, sollte auch die ganz normale Auflösung funktionieren:
+dig seeder.elektron-net.org
 
 # Logs beobachten -- die ersten Antworten dauern etwas, der Seeder muss
 # erst genug Peers erfolgreich crawlen, bevor GetIPList etwas liefert:
@@ -865,8 +891,9 @@ docker compose logs -f elektron-net-seeder
 cat data/elektron-net-seeder/dnsseed.dump
 ```
 
-Erst wenn `dig` zuverlässig IP-Adressen zurückgibt und `dnsseed.dump`
-plausible, aktuelle Peers zeigt, würde ich `seed.elektron-net.org` als
+Erst wenn `dig seeder.elektron-net.org` (die ganz normale Auflösung, nicht
+nur `dig @<SERVER_IP>`) zuverlässig IP-Adressen zurückgibt und
+`dnsseed.dump` plausible, aktuelle Peers zeigt, würde ich es als
 `seednode=`/`dnsseed=` produktiv verlinken oder öffentlich bewerben.
 
 ### Konfigurierbare Felder (`elektron-net-seeder/.env`)

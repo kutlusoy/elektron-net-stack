@@ -108,7 +108,7 @@ FAUCET_EXPLORER_URL=
 # NODE_DOMAIN) und öffnet Port 53 -- erst auf true stellen, wenn du README
 # "Seeder (optional, Testphase)" gelesen hast und bereit für erste Tests bist.
 INSTALL_SEEDER=false
-SEEDER_HOST=seed.elektron-net.org
+SEEDER_HOST=seeder.elektron-net.org
 SEEDER_NS=node1.elektron-net.org
 SEEDER_MBOX=admin.elektron-net.org
 SEEDER_DNS_PORT=53

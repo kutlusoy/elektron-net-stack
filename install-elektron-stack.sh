@@ -136,7 +136,7 @@ FAUCET_EXPLORER_URL=""                        # optional, shown as a link after 
 # until you've read README "Seeder (optional, Testphase)" and are ready to
 # do first tests.
 INSTALL_SEEDER="false"
-SEEDER_HOST="seed.elektron-net.org"
+SEEDER_HOST="seeder.elektron-net.org"
 SEEDER_NS="${NODE_DOMAIN}"
 SEEDER_MBOX="admin.elektron-net.org"
 SEEDER_DNS_PORT="53"
