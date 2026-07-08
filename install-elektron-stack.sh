@@ -997,6 +997,25 @@ export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WA
 export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
 
 # ============================================================================
+# 10b. Seeder deaktivieren, falls INSTALL_SEEDER (wieder) auf false steht
+# ============================================================================
+# Wichtig: ein Compose-Profil zu deaktivieren stoppt von sich aus KEINEN
+# bereits laufenden Container -- "docker compose up -d" ohne "--profile
+# seeder" lässt einen zuvor gestarteten elektron-net-seeder-Container
+# einfach unangetastet weiterlaufen. Ohne dieses Teardown wäre
+# INSTALL_SEEDER=false also kein echtes Deinstallieren, nur ein "nicht neu
+# starten". Named-Service-Aufrufe (stop/rm <service>) ignorieren laut
+# Compose-Doku ohnehin die Profile-Filterung -- funktioniert daher auch
+# ohne "--profile seeder" hier.
+if [ "$INSTALL_SEEDER" != "true" ]; then
+  if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "elektron-net-seeder"; then
+    log "INSTALL_SEEDER=false -- stoppe und entferne den zuvor gestarteten Seeder-Container (Quellcode und dnsseed.dat/.dump in data/elektron-net-seeder/ bleiben für ein späteres Wiederaktivieren erhalten) ..."
+    docker compose stop elektron-net-seeder 2>/dev/null || true
+    docker compose rm -f elektron-net-seeder 2>/dev/null || true
+  fi
+fi
+
+# ============================================================================
 # 11. Rest des Stacks hochfahren
 # ============================================================================
 COMPOSE_PROFILE_ARGS=""
@@ -1027,6 +1046,13 @@ if command -v ufw >/dev/null 2>&1; then
     if [ "$INSTALL_SEEDER" = "true" ]; then
       ufw allow 53/udp comment 'Elektron DNS seeder' || true
       ufw allow 53/tcp comment 'Elektron DNS seeder (TCP-Fallback)' || true
+    else
+      # Best-effort: falls Port 53 aus einem vorherigen Lauf mit
+      # INSTALL_SEEDER=true noch offen ist, symmetrisch wieder schließen.
+      # "|| true", da ufw hier auch dann fehlerfrei durchlaufen soll, wenn
+      # die Regel gar nicht existiert (z.B. beim allerersten Lauf).
+      ufw delete allow 53/udp 2>/dev/null || true
+      ufw delete allow 53/tcp 2>/dev/null || true
     fi
     ufw reload || true
   else
