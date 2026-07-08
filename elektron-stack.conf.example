@@ -101,12 +101,8 @@ FAUCET_DEFAULT_LANG=de
 FAUCET_EXPLORER_URL=
 
 # --- Seeder (elektron-net-seeder) -- OPTIONAL, noch in Testphase ---
-# false (Default) = wird weder geklont noch gebaut noch gestartet, ein
-# normaler Lauf verhält sich exakt wie zuvor. true = zusätzlich klonen,
-# bauen und starten (über das Compose-Profil "seeder"). Braucht eine eigene
-# NS-Delegation für SEEDER_HOST in DNS (nicht nur einen A/AAAA-Eintrag wie
-# NODE_DOMAIN) und öffnet Port 53 -- erst auf true stellen, wenn du README
-# "Seeder (optional, Testphase)" gelesen hast und bereit für erste Tests bist.
+# true = zusätzlich klonen/bauen/starten (Compose-Profil "seeder"). Braucht
+# eigene NS-Delegation für SEEDER_HOST in DNS, siehe README.
 INSTALL_SEEDER=false
 SEEDER_HOST=seeder.elektron-net.org
 SEEDER_NS=node1.elektron-net.org
@@ -114,8 +110,4 @@ SEEDER_MBOX=admin.elektron-net.org
 SEEDER_DNS_PORT=53
 SEEDER_THREADS=96
 SEEDER_DNS_THREADS=4
-# Elektron Net ist noch eine junge Chain -- ein Peer gilt schon ab dieser
-# Blockhöhe als "good", statt erst ab dem im Seeder eingebauten
-# Mainnet-Default (350000, für eine viel ältere Chain kalibriert). Gibt dem
-# Netzwerk Starthilfe, schließt aber weiterhin stark zurückgebliebene Peers aus.
-SEEDER_MIN_HEIGHT=70000
+SEEDER_MIN_HEIGHT=70000                # junge Chain -- unter dem Seeder-Mainnet-Default von 350000
