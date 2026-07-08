@@ -930,3 +930,13 @@ sudo systemctl restart systemd-resolved
 sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
 docker compose --profile seeder up -d elektron-net-seeder
 ```
+
+**Andere Container (Telegram-Bot, hCaptcha, ...) lösen nach dem DNS-Fix
+oben plötzlich keine externen Hostnamen mehr auf** -- bereits laufende
+Container haben ihre DNS-Weiterleitung zum jetzt toten Stub (`127.0.0.53`)
+fest bei ihrer Erstellung übernommen. `install-elektron-stack.sh` erzwingt
+das seit neuestem selbst automatisch; bei einem manuellen Fix reicht:
+
+```bash
+docker compose --profile seeder up -d --force-recreate
+```

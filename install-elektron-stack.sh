@@ -1007,6 +1007,7 @@ fi
 # 10c. Port 53 für den Seeder freimachen -- systemd-resolved belegt ihn auf
 #      den meisten Ubuntu-Servern per Default (DNSStubListener).
 # ============================================================================
+DNS_JUST_CHANGED=false
 if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
    && systemctl is-active --quiet systemd-resolved 2>/dev/null \
    && ! grep -q '^DNSStubListener=no' /etc/systemd/resolved.conf 2>/dev/null; then
@@ -1020,6 +1021,16 @@ if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
   if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q 'stub-resolv.conf'; then
     ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
   fi
+  # Bereits laufende Container haben ihre DNS-Weiterleitung zum jetzt toten
+  # Stub (127.0.0.53) fest bei ihrer Erstellung übernommen -- ohne Neuerstellung
+  # bricht ab hier jede externe Namensauflösung in ihnen (z.B. Telegram-Bot,
+  # hCaptcha), still und ohne Zusammenhang zu dieser Änderung erkennbar.
+  DNS_JUST_CHANGED=true
+fi
+
+if [ "$DNS_JUST_CHANGED" = "true" ]; then
+  log "DNS-Konfiguration geändert -- erzwinge Neuerstellung von elektron-net, damit es die korrekte Auflösung übernimmt ..."
+  docker compose up -d --force-recreate --build elektron-net
 fi
 
 # ============================================================================
@@ -1031,8 +1042,10 @@ if [ "$INSTALL_SEEDER" = "true" ]; then
   COMPOSE_PROFILE_ARGS="--profile seeder"
   EXTRA_SERVICES_LABEL=", seeder"
 fi
+FORCE_RECREATE_ARGS=""
+[ "$DNS_JUST_CHANGED" = "true" ] && FORCE_RECREATE_ARGS="--force-recreate"
 log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA_SERVICES_LABEL}) ..."
-docker compose $COMPOSE_PROFILE_ARGS up -d --build
+docker compose $COMPOSE_PROFILE_ARGS up -d --build $FORCE_RECREATE_ARGS
 
 # ============================================================================
 # 12. Firewall
