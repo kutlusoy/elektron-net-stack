@@ -1,9 +1,11 @@
 # Von install-elektron-stack.sh generierte Secrets -- NIE committen. Die
 # zugehörigen Vorlagen ohne echte Werte (elektron-net-ppool/.env.example,
-# elektron-net-faucet/.env.example, elektron-net/bitcoin.conf.example)
-# bleiben bewusst getrackt und stehen als Referenz im Repo.
+# elektron-net-faucet/.env.example, elektron-net-seeder/.env.example,
+# elektron-net/bitcoin.conf.example) bleiben bewusst getrackt und stehen
+# als Referenz im Repo.
 elektron-net-ppool/.env
 elektron-net-faucet/.env
+elektron-net-seeder/.env
 .env
 
 # Wird vom Skript mit dem echten rpcauth-Hash überschrieben (Hash, nicht

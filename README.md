@@ -2,7 +2,10 @@
 
 Enthält: `elektron-net` (Seed-Node), `elektron-net-ppool` + `elektron-net-ppool-ui`
 (PPLNS-Pool), `elektron-net-faucet`. Ein Caddy als gemeinsamer Reverse Proxy
-für HTTPS.
+für HTTPS. Optional, noch in Testphase: `elektron-net-seeder` (DNS-Crawler,
+siehe [„Seeder (optional, Testphase)"](#seeder-optional-testphase)) --
+standardmäßig NICHT installiert, wird bei einem normalen Lauf komplett
+übersprungen.
 
 ## Schnellstart (automatisiert)
 
@@ -317,6 +320,7 @@ kurz zusammengefasst:
 | Faucet-Login | `FAUCET_ADMIN_USER`, `FAUCET_ADMIN_PASS` (leer = auto) |
 | Faucet-Business | `FAUCET_HCAPTCHA_SITE`/`_SECRET`, `FAUCET_TITLE`, `FAUCET_MESSAGE`, `FAUCET_AMOUNT_ELEK`, `FAUCET_DAILY_BUDGET`, `FAUCET_HOURLY_BUDGET`, `FAUCET_PER_ADDR_COOLDOWN_H`, `FAUCET_PER_IP_COOLDOWN_H`, `FAUCET_DEFAULT_LANG`, `FAUCET_EXPLORER_URL` |
 | Secrets (immer auto, wenn leer) | `JWT_SECRET`, RPC-Passwort (kein Feld dafür -- immer generiert) |
+| Seeder (optional, Default aus) | `INSTALL_SEEDER` (Default `false`), `SEEDER_HOST`, `SEEDER_NS`, `SEEDER_MBOX`, `SEEDER_DNS_PORT`, `SEEDER_THREADS`, `SEEDER_DNS_THREADS` -- siehe [„Seeder (optional, Testphase)"](#seeder-optional-testphase) |
 
 Felder, die das Skript automatisch nach der Wallet-Erstellung einträgt
 (`POOL_WALLET_ADDRESS`, `FAUCET_SENDER_ADDR`), gehören **nicht** in
@@ -400,6 +404,7 @@ docker compose up -d --force-recreate elektron-faucet-app
 | `elektron-net-ppool-ui`-Umgebung | `elektron-ppool-ui` |
 | `elektron-net-faucet/.env` | `elektron-faucet-app` |
 | `elektron-net/bitcoin.conf` | `elektron-net` (kurzer Node-Neustart, P2P kurz offline) |
+| `elektron-net-seeder/.env` (nur falls `INSTALL_SEEDER=true`) | `docker compose --profile seeder up -d --force-recreate elektron-net-seeder` (das `--profile seeder` nicht vergessen, sonst ignoriert Compose den Service) |
 
 **Achtung:** `FAUCET_DB_PASS`, `FAUCET_DB_ROOT_PASS` und
 `FAUCET_WALLET_PASSPHRASE` von Hand in der `.env` zu ändern bricht die
@@ -772,6 +777,126 @@ Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
 - `elektron-net-ppool/.env`: `PAYOUT_DRY_RUN=true` lassen, bis du die erste
   simulierte Auszahlung im Log geprüft hast (siehe ppool-README
   "Verification before going live") — erst danach auf `false` stellen
+
+## Seeder (optional, Testphase)
+
+[`elektron-net-seeder`](https://github.com/kutlusoy/elektron-net-seeder) ist
+ein DNS-Seed-Crawler (ein klassischer Bitcoin-`dnsseed`-Fork): er verbindet
+sich laufend zu bekannten Elektron-Net-Peers, prüft ihre Erreichbarkeit und
+beantwortet DNS-Anfragen mit einer Liste aktuell gut erreichbarer Nodes --
+genau das, was `elektron-qt`/`elektrond` beim ersten Start abfragen, um ohne
+fest einprogrammierte Adressliste ins Netzwerk zu finden.
+
+**Ressourcenbedarf auf Hetzner:** sehr gering. Laut Upstream-README nur "a
+few tens of megabytes" RAM und niedrige CPU-Last -- die vielen Crawler-Threads
+(Default 96) sind I/O-gebunden (warten auf TCP-Antworten der gecrawlten
+Peers), nicht CPU-intensiv. Passt problemlos neben Node/Pool/Faucet auf
+denselben Server, ohne dass zusätzliche Hetzner-Ressourcen nötig wären. Es
+gibt **keinen** eigenen P2P-Port zum Veröffentlichen -- der Seeder verbindet
+sich nur ausgehend zu anderen Nodes, er nimmt selbst keine P2P-Verbindungen
+an. Einzig offener Port: **53 (DNS, UDP + TCP)**.
+
+**Warum vorerst optional:** Der Seeder braucht eine eigene, von den anderen
+drei Domains unabhängige DNS-Konfiguration -- eine **NS-Delegation** (nicht
+nur einen A/AAAA-Eintrag wie `NODE_DOMAIN`/`POOL_DOMAIN`/`FAUCET_DOMAIN`),
+damit `SEEDER_HOST` überhaupt als autoritativer DNS-Seed funktioniert. Das
+ist ein anderer, fehleranfälligerer DNS-Schritt als die übrigen drei Domains
+und will vor dem produktiven Einsatz (z.B. Verlinken als `seednode=` in
+`elektron.conf` oder öffentliches Bewerben) erst getestet sein -- daher ist
+`INSTALL_SEEDER` standardmäßig `false`: ein normaler Stack-Lauf klont, baut
+und startet den Seeder gar nicht (das zugehörige Docker-Compose-Profil
+`seeder` bleibt inaktiv).
+
+### Aktivieren
+
+Entweder in `elektron-stack.conf` setzen:
+
+```ini
+INSTALL_SEEDER=true
+SEEDER_HOST=seed.elektron-net.org
+SEEDER_NS=node1.elektron-net.org
+SEEDER_MBOX=admin.elektron-net.org
+```
+
+oder beim interaktiven Lauf von `./install-elektron-stack.sh` die
+entsprechende Frage mit `j` beantworten. `SEEDER_NS` kann derselbe Server
+sein wie der Node (`NODE_DOMAIN`) -- er muss nur als autoritativer
+Nameserver für `SEEDER_HOST` in DNS eingetragen sein (siehe unten).
+`SEEDER_MBOX` ist eine E-Mail-Adresse für den SOA-Record, mit `@` als `.`
+geschrieben (z.B. `admin.elektron-net.org` für `admin@elektron-net.org`).
+
+Ein erneuter Lauf mit `INSTALL_SEEDER=true` klont `elektron-net-seeder`,
+schreibt `elektron-net-seeder/.env`, baut das Image und startet den
+Container zusätzlich zum Rest des Stacks -- alles andere (Node, Pool,
+Faucet) bleibt unverändert, wie bei jedem Rerun.
+
+### DNS-Delegation einrichten
+
+Anders als bei den anderen drei Domains reicht hier kein A-Record. Du
+brauchst einen **NS-Record**, der die Zone `SEEDER_HOST` an `SEEDER_NS`
+delegiert (das ist derselbe Mechanismus wie bei jedem "echten" DNS-Seed,
+z.B. `seed.bitcoin.sipa.be`). Bei world4you (oder deinem DNS-Anbieter):
+
+| Subdomain | Typ | Ziel |
+|---|---|---|
+| `seed.elektron-net.org` | NS | `node1.elektron-net.org` (bzw. dein `SEEDER_NS`) |
+
+Prüfen, sobald propagiert:
+
+```bash
+dig -t NS seed.elektron-net.org
+```
+
+Die Antwort sollte den NS-Eintrag zeigen. Bis die Delegation propagiert ist,
+kannst du trotzdem direkt gegen den Container testen (siehe unten).
+
+### Erste Tests, bevor es live geht
+
+```bash
+# Direkt gegen den laufenden Container fragen -- funktioniert auch schon
+# VOR propagierter NS-Delegation, da es die IP direkt anspricht:
+dig @<SERVER_IP> -p 53 seed.elektron-net.org
+
+# Logs beobachten -- die ersten Antworten dauern etwas, der Seeder muss
+# erst genug Peers erfolgreich crawlen, bevor GetIPList etwas liefert:
+docker compose logs -f elektron-net-seeder
+
+# Crawl-Status aller bekannten Peers (IP, letzter Kontakt, Erfolgsrate):
+cat data/elektron-net-seeder/dnsseed.dump
+```
+
+Erst wenn `dig` zuverlässig IP-Adressen zurückgibt und `dnsseed.dump`
+plausible, aktuelle Peers zeigt, würde ich `seed.elektron-net.org` als
+`seednode=`/`dnsseed=` produktiv verlinken oder öffentlich bewerben.
+
+### Konfigurierbare Felder (`elektron-net-seeder/.env`)
+
+| Variable | Bedeutung | Default |
+|---|---|---|
+| `SEEDER_HOST` | Hostname des DNS-Seeds selbst | -- (Pflicht) |
+| `SEEDER_NS` | Autoritativer Nameserver dafür | -- (Pflicht) |
+| `SEEDER_MBOX` | E-Mail für SOA-Record (`@` als `.`) | -- (Pflicht) |
+| `SEEDER_DNS_PORT` | UDP/TCP-Port für DNS-Antworten | `53` |
+| `SEEDER_BIND_ADDRESS` | Bind-Adresse | `::` (alle) |
+| `SEEDER_THREADS` | Parallele Crawler-Threads | `96` |
+| `SEEDER_DNS_THREADS` | DNS-Server-Threads | `4` |
+| `SEEDER_P2P_PORT` | P2P-Port der gecrawlten Peers | leer = `8333` (Elektron-Default) |
+| `SEEDER_MAGIC` | Netzwerk-Magic-Bytes (hex) | leer = Elektron-Net-Default |
+| `SEEDER_EXTRA_SEEDS` | Komma-getrennt, ersetzt die eingebaute Startliste | leer |
+| `SEEDER_FILTERS` | Komma-getrennt, erlaubte Service-Flag-Kombinationen | leer (alle) |
+| `SEEDER_TESTNET` / `SEEDER_WIPE_BAN` / `SEEDER_WIPE_IGNORE` | `true`/`false` | `false` |
+
+`SEEDER_P2P_PORT` und `SEEDER_MAGIC` müssen normalerweise **nicht** gesetzt
+werden -- der Seeder verwendet bereits standardmäßig Elektron Nets eigenen
+P2P-Port (8333) und Netzwerk-Magic, genau wie `elektron-net` selbst.
+
+### StartOS-Variante
+
+Es gibt zusätzlich [`elektron-seeder-startos`](https://github.com/kutlusoy/elektron-seeder-startos),
+einen StartOS-Service-Wrapper für denselben Seeder (z.B. für einen
+Heim-Server hinter FritzBox+DynDNS). Diese Docker-Compose-Integration hier
+ist davon unabhängig und wird aktuell bevorzugt weiterentwickelt -- die
+StartOS-Variante wird vorerst nicht aktiv gepflegt.
 
 ## Wichtig
 
