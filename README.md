@@ -828,7 +828,47 @@ geschrieben (z.B. `admin.elektron-net.org` für `admin@elektron-net.org`).
 Ein erneuter Lauf mit `INSTALL_SEEDER=true` klont `elektron-net-seeder`,
 schreibt `elektron-net-seeder/.env`, baut das Image und startet den
 Container zusätzlich zum Rest des Stacks -- alles andere (Node, Pool,
-Faucet) bleibt unverändert, wie bei jedem Rerun.
+Faucet) bleibt unverändert, wie bei jedem Rerun. `docker-compose.yml` wird
+bei jedem Lauf komplett neu geschrieben, aber die Service-Blöcke der
+anderen Container bleiben dabei Byte-für-Byte identisch -- Compose erkennt
+also keine Konfigurationsänderung an ihnen und fasst sie nicht an
+(kein Neustart, kein Rebuild, kein Downtime für Node/Pool/Faucet/Caddy).
+Einzige Voraussetzung: `AUTO_UPDATE_REPOS` bleibt auf `false` (Default) und
+du änderst beim selben Lauf keine anderen Einstellungen -- sonst würde
+natürlich genau der geänderte Service neu gebaut, wie bei jedem normalen
+Rerun auch ohne Seeder.
+
+### Wieder deaktivieren ("deinstallieren")
+
+`INSTALL_SEEDER` wieder auf `false` setzen (in `elektron-stack.conf`, oder
+bei der interaktiven Frage mit `n`/Enter antworten) und
+`./install-elektron-stack.sh` erneut laufen lassen reicht aus -- das Skript
+kümmert sich dabei selbst um einen sauberen Rückbau, **bevor** es
+kein Compose-`up` mehr für den Seeder ausführt:
+
+- stoppt und entfernt einen zuvor gestarteten `elektron-net-seeder`-Container
+  (ein reines Deaktivieren des Compose-Profils allein würde einen bereits
+  laufenden Container sonst einfach unangetastet weiterlaufen lassen --
+  das Skript macht diesen Schritt explizit)
+- schließt Port 53 (UDP+TCP) in `ufw` wieder, sofern `FIREWALL_AUTO_CONFIGURE=true`
+  (Hetzner Cloud-Firewall-Panel bitte weiterhin manuell prüfen/anpassen)
+
+**Bleibt bewusst erhalten**, damit ein späteres Wiederaktivieren nicht bei
+null anfängt: der geklonte Quellcode in `elektron-net-seeder/`, die
+`.env`-Datei darin, und vor allem `data/elektron-net-seeder/dnsseed.dat` /
+`dnsseed.dump` (der bisherige Crawl-Fortschritt). Willst du auch das
+vollständig entfernen: `rm -rf elektron-net-seeder data/elektron-net-seeder`
+nach dem Deaktivieren.
+
+Ganz ohne das Skript geht es genauso manuell, falls du schneller nur diesen
+einen Container anfassen willst:
+
+```bash
+docker compose stop elektron-net-seeder
+docker compose rm -f elektron-net-seeder
+sudo ufw delete allow 53/udp
+sudo ufw delete allow 53/tcp
+```
 
 ### DNS-Delegation einrichten
 
