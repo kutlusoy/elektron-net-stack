@@ -664,8 +664,10 @@ services:
     networks:
       - backend
     ports:
-      - "53:53/udp"
-      - "53:53/tcp"
+      - "__SERVER_IP__:53:53/udp"
+      - "__SERVER_IP__:53:53/tcp"
+      - "[__SERVER_IPV6__]:53:53/udp"
+      - "[__SERVER_IPV6__]:53:53/tcp"
     env_file: ./elektron-net-seeder/.env
     volumes:
       - "./data/elektron-net-seeder:/data"
@@ -692,6 +694,11 @@ volumes:
   caddy_data:
   caddy_config:
 COMPOSE_EOF
+
+# Seeder-Ports an die konkrete Server-IP binden statt an die Wildcard-Adresse
+# -- vermeidet eine Kollision mit systemd-resolved (lauscht typischerweise
+# nur auf 127.0.0.53/54:53, nicht auf der öffentlichen IP).
+sed -i "s/__SERVER_IP__/${SERVER_IP}/g; s/__SERVER_IPV6__/${SERVER_IPV6}/g" docker-compose.yml
 
 # ============================================================================
 # 6. Caddyfile
@@ -1004,36 +1011,6 @@ if [ "$INSTALL_SEEDER" != "true" ]; then
 fi
 
 # ============================================================================
-# 10c. Port 53 für den Seeder freimachen -- systemd-resolved belegt ihn auf
-#      den meisten Ubuntu-Servern per Default (DNSStubListener).
-# ============================================================================
-DNS_JUST_CHANGED=false
-if [ "$INSTALL_SEEDER" = "true" ] && command -v systemctl >/dev/null 2>&1 \
-   && systemctl is-active --quiet systemd-resolved 2>/dev/null \
-   && ! grep -q '^DNSStubListener=no' /etc/systemd/resolved.conf 2>/dev/null; then
-  log "systemd-resolved belegt Port 53 -- deaktiviere DNSStubListener, damit der Seeder ihn binden kann ..."
-  if grep -q '^#\?DNSStubListener=' /etc/systemd/resolved.conf 2>/dev/null; then
-    sed -i 's/^#\?DNSStubListener=.*/DNSStubListener=no/' /etc/systemd/resolved.conf
-  else
-    echo 'DNSStubListener=no' >> /etc/systemd/resolved.conf
-  fi
-  systemctl restart systemd-resolved
-  if [ -L /etc/resolv.conf ] && readlink /etc/resolv.conf | grep -q 'stub-resolv.conf'; then
-    ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-  fi
-  # Bereits laufende Container haben ihre DNS-Weiterleitung zum jetzt toten
-  # Stub (127.0.0.53) fest bei ihrer Erstellung übernommen -- ohne Neuerstellung
-  # bricht ab hier jede externe Namensauflösung in ihnen (z.B. Telegram-Bot,
-  # hCaptcha), still und ohne Zusammenhang zu dieser Änderung erkennbar.
-  DNS_JUST_CHANGED=true
-fi
-
-if [ "$DNS_JUST_CHANGED" = "true" ]; then
-  log "DNS-Konfiguration geändert -- erzwinge Neuerstellung von elektron-net, damit es die korrekte Auflösung übernimmt ..."
-  docker compose up -d --force-recreate --build elektron-net
-fi
-
-# ============================================================================
 # 11. Rest des Stacks hochfahren
 # ============================================================================
 COMPOSE_PROFILE_ARGS=""
@@ -1042,10 +1019,8 @@ if [ "$INSTALL_SEEDER" = "true" ]; then
   COMPOSE_PROFILE_ARGS="--profile seeder"
   EXTRA_SERVICES_LABEL=", seeder"
 fi
-FORCE_RECREATE_ARGS=""
-[ "$DNS_JUST_CHANGED" = "true" ] && FORCE_RECREATE_ARGS="--force-recreate"
 log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA_SERVICES_LABEL}) ..."
-docker compose $COMPOSE_PROFILE_ARGS up -d --build $FORCE_RECREATE_ARGS
+docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
 # ============================================================================
 # 12. Firewall
