@@ -142,6 +142,11 @@ SEEDER_MBOX="admin.elektron-net.org"
 SEEDER_DNS_PORT="53"
 SEEDER_THREADS="96"
 SEEDER_DNS_THREADS="4"
+# Elektron Net is still a young chain -- a peer only counts as "good" once
+# it reports at least this block height. 70000 gives the network a head
+# start instead of the seeder's built-in mainnet default (350000, tuned for
+# a much older chain), while still excluding peers that are badly stalled.
+SEEDER_MIN_HEIGHT="70000"
 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
@@ -158,7 +163,7 @@ FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN
 FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
 FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL
-INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS"
+INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS SEEDER_MIN_HEIGHT"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -834,7 +839,7 @@ SEEDER_THREADS=${SEEDER_THREADS}
 SEEDER_DNS_THREADS=${SEEDER_DNS_THREADS}
 SEEDER_P2P_PORT=
 SEEDER_MAGIC=
-SEEDER_MIN_HEIGHT=
+SEEDER_MIN_HEIGHT=${SEEDER_MIN_HEIGHT}
 SEEDER_TOR_PROXY=
 SEEDER_IPV4_PROXY=
 SEEDER_IPV6_PROXY=

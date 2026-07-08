@@ -114,3 +114,8 @@ SEEDER_MBOX=admin.elektron-net.org
 SEEDER_DNS_PORT=53
 SEEDER_THREADS=96
 SEEDER_DNS_THREADS=4
+# Elektron Net ist noch eine junge Chain -- ein Peer gilt schon ab dieser
+# Blockhöhe als "good", statt erst ab dem im Seeder eingebauten
+# Mainnet-Default (350000, für eine viel ältere Chain kalibriert). Gibt dem
+# Netzwerk Starthilfe, schließt aber weiterhin stark zurückgebliebene Peers aus.
+SEEDER_MIN_HEIGHT=70000
