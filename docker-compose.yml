@@ -125,6 +125,69 @@ services:
       - "./data/elektron-net-seeder:/data"
 
   # ------------------------------------------------------------------
+  # Mempool Explorer -- reverse-proxied by Caddy at mempool.elektron-net.org
+  # (mempool.space fork). OPTIONAL (see README): the "mempool" profile keeps
+  # it out of a plain "docker compose up -d" when INSTALL_MEMPOOL=false.
+  # No new public port -- same Caddy-only pattern as the pool UI and faucet.
+  # backend/frontend build contexts don't exist until
+  # install-elektron-stack.sh stages them from elektron-net-mempool/docker/
+  # (mirrors upstream's own docker/init.sh).
+  # ------------------------------------------------------------------
+  elektron-mempool-db:
+    container_name: elektron-mempool-db
+    image: mariadb:11.4
+    restart: unless-stopped
+    profiles:
+      - mempool
+    env_file: ./elektron-net-mempool/.env
+    networks:
+      - backend
+    volumes:
+      - "./data/mempool-db:/var/lib/mysql"
+    healthcheck:
+      test: ["CMD-SHELL", "mariadb-admin ping -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  elektron-mempool-api:
+    container_name: elektron-mempool-api
+    profiles:
+      - mempool
+    build:
+      context: ./elektron-net-mempool/backend
+      additional_contexts:
+        - "backend=./elektron-net-mempool/backend"
+        - "rustgbt=./elektron-net-mempool/rust"
+      args:
+        commitHash: "local"
+    restart: unless-stopped
+    depends_on:
+      elektron-net:
+        condition: service_started
+      elektron-mempool-db:
+        condition: service_healthy
+    networks:
+      - backend
+    env_file: ./elektron-net-mempool/.env
+    volumes:
+      - "./data/mempool-cache:/backend/cache"
+
+  elektron-mempool-web:
+    container_name: elektron-mempool-web
+    profiles:
+      - mempool
+    build:
+      context: ./elektron-net-mempool/frontend
+    restart: unless-stopped
+    depends_on:
+      - elektron-mempool-api
+    networks:
+      - backend
+      - web
+    env_file: ./elektron-net-mempool/.env
+
+  # ------------------------------------------------------------------
   # Caddy -- single public entrypoint, automatic HTTPS for both
   # web-facing subdomains.
   # ------------------------------------------------------------------
@@ -143,9 +206,9 @@ services:
       - "caddy_config:/config"
 
 networks:
-  # Node RPC, pool backend, faucet DB/app -- never exposed to the host.
+  # Node RPC, pool backend, faucet DB/app, mempool DB/API -- never exposed to the host.
   backend:
-  # Only what Caddy needs to reach: the two web UIs.
+  # Only what Caddy needs to reach: the web-facing UIs.
   web:
 
 volumes:

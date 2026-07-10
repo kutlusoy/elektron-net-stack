@@ -1,9 +1,11 @@
 # Elektron Net Stack auf Hetzner (46.225.163.85)
 
 Enthält: `elektron-net` (Seed-Node), `elektron-net-ppool` + `elektron-net-ppool-ui`
-(PPLNS-Pool), `elektron-net-faucet`. Ein Caddy als gemeinsamer Reverse Proxy
-für HTTPS. Optional, noch in Testphase: `elektron-net-seeder` (DNS-Crawler,
-siehe [„Seeder (optional, Testphase)"](#seeder-optional-testphase)) --
+(PPLNS-Pool), `elektron-net-faucet`, `elektron-net-mempool` (Block-Explorer,
+siehe [„Mempool Explorer (optional)"](#mempool-explorer-optional)). Ein Caddy
+als gemeinsamer Reverse Proxy für HTTPS. Optional, noch in Testphase:
+`elektron-net-seeder` (DNS-Crawler, siehe
+[„Seeder (optional, Testphase)"](#seeder-optional-testphase)) --
 standardmäßig NICHT installiert, wird bei einem normalen Lauf komplett
 übersprungen.
 
@@ -345,8 +347,8 @@ Kurzfassung zuerst, Details darunter:
 | Was hat sich geändert? | Was tun? |
 |---|---|
 | Eine Einstellung in `elektron-stack.conf` (Domain, hCaptcha-Key, Payout-Parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
-| Sourcecode eines der vier Repos (neue Version auf GitHub) | `git pull` im jeweiligen Ordner -> `docker compose up -d --build <service>` |
-| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose pull caddy elektron-faucet-db` -> `docker compose up -d` |
+| Sourcecode eines der Repos (neue Version auf GitHub) | `git pull` im jeweiligen Ordner -> `docker compose up -d --build <service>` |
+| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose --profile mempool pull caddy elektron-faucet-db elektron-mempool-db` -> `docker compose --profile mempool up -d` |
 
 ### A) Nur eine Einstellung geändert
 
@@ -382,6 +384,7 @@ docker compose up -d --force-recreate elektron-faucet-app
 | `elektron-net-ppool-ui`-Umgebung | `elektron-ppool-ui` |
 | `elektron-net-faucet/.env` | `elektron-faucet-app` |
 | `elektron-net/bitcoin.conf` | `elektron-net` (kurzer Node-Neustart, P2P kurz offline) |
+| `elektron-net-mempool/.env` (nur falls `INSTALL_MEMPOOL=true`) | `docker compose --profile mempool up -d --force-recreate elektron-mempool-api elektron-mempool-web` |
 | `elektron-net-seeder/.env` (nur falls `INSTALL_SEEDER=true`) | `docker compose --profile seeder up -d --force-recreate elektron-net-seeder` (das `--profile seeder` nicht vergessen, sonst ignoriert Compose den Service) |
 
 **Achtung:** `FAUCET_DB_PASS`, `FAUCET_DB_ROOT_PASS` und
@@ -391,7 +394,7 @@ verschlüsselten Wallet -- diese drei nach dem Ersteinrichten nicht mehr
 von Hand anfassen (das Skript selbst lässt sie beim Rerun ohnehin
 automatisch unangetastet, siehe oben).
 
-### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet)
+### B) Sourcecode-Update (elektron-net, -ppool, -ppool-ui, -faucet, -mempool)
 
 **Automatisch beim Skript-Lauf:** Antworte bei der Frage *"Vor dem Bauen
 nach Updates in den geklonten Repos suchen ...?"* (kommt ganz am Anfang,
@@ -418,41 +421,48 @@ cd /opt/elektron-net-stack
 docker compose up -d --build elektron-ppool     # baut nur dieses Image neu und ersetzt den Container
 ```
 
-Service-Namen für die anderen drei Repos: `elektron-net`,
-`elektron-ppool-ui`, `elektron-faucet-app`. Für alle vier auf einmal:
+Service-Namen für die anderen Repos: `elektron-net`, `elektron-ppool-ui`,
+`elektron-faucet-app`, `elektron-mempool-api`/`elektron-mempool-web` (nur
+falls `INSTALL_MEMPOOL=true` -- Buildkontext für Letztere wird bei jedem
+Skript-Lauf neu aus `elektron-net-mempool/docker/` gestagt, ein reines
+`git pull` ohne erneuten Skript-Lauf reicht hier alleine also nicht, siehe
+["Mempool Explorer"](#mempool-explorer-optional)). Für alle Repos auf
+einmal:
 
 ```bash
 cd /opt/elektron-net-stack
-for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
-  (cd "$d" && git pull)
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool; do
+  [ -d "$d" ] && (cd "$d" && git pull)
 done
-docker compose up -d --build
+docker compose --profile mempool up -d --build   # --profile mempool nur nötig, falls INSTALL_MEMPOOL=true
 ```
 
 ### C) Docker-Images aktualisieren (Caddy, MariaDB)
 
-`caddy` und `elektron-faucet-db` sind fertige Images von Docker Hub (kein
-eigener Build) -- neue Version holen und Container damit neu starten:
+`caddy`, `elektron-faucet-db` und (falls `INSTALL_MEMPOOL=true`)
+`elektron-mempool-db` sind fertige Images von Docker Hub (kein eigener
+Build) -- neue Version holen und Container damit neu starten:
 
 ```bash
 cd /opt/elektron-net-stack
-docker compose pull caddy elektron-faucet-db
-docker compose up -d
+docker compose --profile mempool pull caddy elektron-faucet-db elektron-mempool-db
+docker compose --profile mempool up -d
 ```
 
-Die Datenbank-Daten liegen im Bind-Mount `./data/faucet-db` und bleiben
-beim Image-Update erhalten (MariaDB-Minor-Updates sind abwärtskompatibel;
-bei einem Major-Versionssprung vorher deren Release-Notes prüfen).
+Die Datenbank-Daten liegen im Bind-Mount `./data/faucet-db` bzw.
+`./data/mempool-db` und bleiben beim Image-Update erhalten
+(MariaDB-Minor-Updates sind abwärtskompatibel; bei einem
+Major-Versionssprung vorher deren Release-Notes prüfen).
 
 ### Alles zusammen (Wartungsfenster)
 
 ```bash
 cd /opt/elektron-net-stack
-for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet; do
-  (cd "$d" && git pull)
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool; do
+  [ -d "$d" ] && (cd "$d" && git pull)
 done
-docker compose pull
-docker compose up -d --build
+docker compose --profile mempool pull
+docker compose --profile mempool up -d --build
 ```
 
 Kurzer Hinweis: Der `elektron-net`-Container neu zu starten unterbricht kurz
@@ -882,6 +892,80 @@ bis ein späterer fehlgeschlagener Kontakt ihn wieder aus der Liste entfernt.
 Es gibt zusätzlich [`elektron-seeder-startos`](https://github.com/kutlusoy/elektron-seeder-startos)
 für StartOS (z.B. Heimserver via FritzBox+DynDNS) -- unabhängig von dieser
 Integration, aktuell nicht aktiv gepflegt.
+
+## Mempool Explorer (optional)
+
+[`elektron-net-mempool`](https://github.com/kutlusoy/elektron-net-mempool)
+ist ein Fork von [mempool.space](https://github.com/mempool/mempool): Block-
+und Mempool-Explorer, Mining-Dashboard, Gebührenschätzung. Läuft, wie
+Pool-UI und Faucet, nur hinter Caddy -- **kein neuer Port**, keine
+Firewall-Änderung nötig.
+
+Standardmäßig **installiert** (`INSTALL_MEMPOOL=true`) -- anders als der
+Seeder gilt diese Integration als stabil, nicht als Testphase. Drei
+zusätzliche Container: `elektron-mempool-db` (eigene MariaDB-Instanz,
+getrennt von der Faucet-DB), `elektron-mempool-api` (Backend, RPC-Client
+gegen `elektron-net`), `elektron-mempool-web` (Frontend, von Caddy
+erreichbar).
+
+### Deaktivieren
+
+```ini
+INSTALL_MEMPOOL=false
+```
+
+oder interaktiv die Frage im Skript mit `n` beantworten, dann
+`./install-elektron-stack.sh --yes` (bzw. erneut interaktiv laufen lassen).
+Das Skript stoppt/entfernt alle drei Container (ein Compose-Profil allein
+stoppt keinen bereits laufenden Container, daher macht das Skript diesen
+Schritt explizit, genau wie beim Seeder). Daten in `data/mempool-db/` und
+`data/mempool-cache/` bleiben für ein späteres Wiederaktivieren erhalten --
+komplett entfernen: `rm -rf elektron-net-mempool data/mempool-db data/mempool-cache`.
+
+Manuell, ohne Skript:
+```bash
+docker compose stop elektron-mempool-web elektron-mempool-api elektron-mempool-db
+docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-db
+```
+
+### Wichtige Einschränkungen
+
+- **~137 Tage Blockhistorie:** Elektron Net erzwingt Pruning auf jedem Node
+  (`MandatoryPruneDepth`, ~197.280 Blöcke) -- der Explorer kann grundsätzlich
+  keine älteren Blöcke anzeigen, das ist Absicht, kein Bug.
+- **Keine Adress-Lookups:** `MEMPOOL_BACKEND=none` (reiner Core-RPC-Modus) --
+  Adress-Historie/-Guthaben brauchen ein Electrum-Backend
+  (`elektron-net-electrs`, geplant, noch nicht gebaut). Block-/Transaktions-
+  Ansicht funktioniert bereits vollständig.
+- **Eigene Mining-Pool-Liste:** `elektron-net-mempool/pools-v2.json` (nicht
+  Bitcoins `mempool/mining-pools`) -- PPLNS-Pools werden über ihre
+  Auszahlungsadresse erkannt (ein Pool-Tag im Coinbase-scriptSig würde die
+  UTXO-Attestierung brechen, siehe
+  `elektron-net-mempool/backend/src/api/pools-parser.ts`). Alles
+  Unbekannte/Solo-Gefundene erscheint als "Solo Pool Miner". Neue Pools
+  trägt man in `pools-v2.json` ein (eigener Branch/Fork, dann
+  `MEMPOOL_POOLS_JSON_URL`/`_TREE_URL` im generierten
+  `elektron-net-mempool/.env` anpassen).
+
+### Aktualisieren
+
+Anders als bei den anderen vier Repos reicht ein reines manuelles `git pull`
++ `docker compose up -d --build` hier **nicht** alleine: der Docker-
+Buildkontext (`backend/`, `frontend/`) wird erst durch den Staging-Schritt
+in `install-elektron-stack.sh` aus `docker/` erzeugt (siehe oben, "Wichtige
+Einschränkungen" -> Buildkontext). Ein erneuter Skript-Lauf holt beides in
+einem: `AUTO_UPDATE_REPOS=true` (bzw. die entsprechende Rückfrage mit `j`
+beantworten) lässt `elektron-net-mempool` per `git pull --ff-only`
+aktualisieren, staged den Buildkontext neu und baut die beiden Container:
+
+```bash
+cd /opt/elektron-net-stack-install   # oder wo elektron-stack.conf liegt
+./install-elektron-stack.sh --yes
+```
+
+Manuell, ohne das Skript erneut laufen zu lassen: `git pull`, dann den
+Staging-Schritt selbst nachvollziehen (siehe `install-elektron-stack.sh`,
+Abschnitt "1b."), erst danach neu bauen.
 
 ## Wichtig
 
