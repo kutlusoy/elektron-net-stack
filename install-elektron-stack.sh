@@ -984,8 +984,8 @@ MEMPOOL_INDEXING_BLOCKS_AMOUNT=${MEMPOOL_INDEXING_BLOCKS_AMOUNT}
 # Our own mining pool list instead of Bitcoin's -- see
 # elektron-net-mempool/backend/src/api/pools-parser.ts for why a pool
 # identifier can't be embedded in the coinbase scriptSig here.
-MEMPOOL_POOLS_JSON_URL=https://raw.githubusercontent.com/${GITHUB_USER}/elektron-net-mempool/elektron-adopt/pools-v2.json
-MEMPOOL_POOLS_JSON_TREE_URL=https://api.github.com/repos/${GITHUB_USER}/elektron-net-mempool/git/trees/elektron-adopt
+MEMPOOL_POOLS_JSON_URL=https://raw.githubusercontent.com/${GITHUB_USER}/elektron-net-mempool/main/pools-v2.json
+MEMPOOL_POOLS_JSON_TREE_URL=https://api.github.com/repos/${GITHUB_USER}/elektron-net-mempool/git/trees/main
 
 # --- Database (own dedicated MariaDB instance, elektron-mempool-db) ---
 DATABASE_ENABLED=true
