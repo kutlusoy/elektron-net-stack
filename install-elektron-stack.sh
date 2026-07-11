@@ -1203,6 +1203,16 @@ log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
 # ============================================================================
+# 11b. Docker-Build-Cache aufräumen
+# ============================================================================
+# Jeder Rebuild häuft Build-Cache an, der danach nicht mehr gebraucht wird --
+# die fertigen Images bleiben davon unberührt. Nur Einträge löschen, die
+# seit 24h nicht mehr benutzt wurden, damit ein Rebuild kurz danach nicht
+# wieder bei Null anfängt.
+log "Räume alten Docker-Build-Cache auf (>24h ungenutzt) ..."
+docker builder prune -f --filter "until=24h" >/dev/null || true
+
+# ============================================================================
 # 12. Firewall
 # ============================================================================
 if command -v ufw >/dev/null 2>&1; then
