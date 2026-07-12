@@ -115,6 +115,8 @@ SEEDER_MIN_HEIGHT=70000                # junge Chain -- unter dem Seeder-Mainnet
 # --- Mempool Explorer (elektron-net-mempool) -- OPTIONAL, aber stabil ---
 # true = zusätzlich klonen/bauen/starten (Compose-Profil "mempool"). Braucht
 # keinen neuen Port -- läuft, wie Pool/Faucet, nur hinter Caddy.
+# Installiert automatisch elektron-net-electrs mit (Electrum-Server für die
+# Adress-Suche des Explorers, gleiches Profil, wird gemeinsam entfernt).
 INSTALL_MEMPOOL=true
 MEMPOOL_DOMAIN=mempool.elektron-net.org
 MEMPOOL_DB_NAME=mempool
