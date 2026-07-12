@@ -33,5 +33,11 @@ zmqpubrawtx=tcp://0.0.0.0:28333
 # `docker compose exec elektron-net elektron-cli createwallet ...`.
 disablewallet=0
 
+# Auto-load these wallets on every node startup -- without this, a restart
+# leaves listwallets empty and pool/faucet payouts fail until someone runs
+# `loadwallet` by hand.
+wallet=pool
+wallet=faucet
+
 # Note: pruning is MANDATORY and automatic on Elektron Net (197,280-block
 # depth) -- there is no -prune= setting to configure; it's ignored by design.

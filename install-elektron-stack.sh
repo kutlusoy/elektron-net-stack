@@ -615,6 +615,11 @@ zmqpubrawblock=tcp://0.0.0.0:28332
 zmqpubrawtx=tcp://0.0.0.0:28333
 
 disablewallet=0
+# Auto-load these wallets on every node startup -- without this, a restart
+# leaves listwallets empty and pool/faucet payouts fail until someone runs
+# `loadwallet` by hand.
+wallet=${POOL_WALLET_NAME}
+wallet=${FAUCET_WALLET_NAME}
 CONF_EOF
 
 # ============================================================================
