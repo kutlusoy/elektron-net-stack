@@ -482,10 +482,14 @@ clone_or_skip "elektron-net-ppool-ui"
 clone_or_skip "elektron-net-faucet"
 [ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-mempool"
+# elektron-net-electrs (Electrum-Server) gehört fest zum Mempool-Explorer:
+# er liefert dessen Adress-Suche (MEMPOOL_BACKEND=electrum) und teilt sein
+# Compose-Profil "mempool" -- installiert/gestartet/entfernt immer gemeinsam.
+[ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-electrs"
 
 mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config external-wallets
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
-[ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache
+[ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache data/electrs
 
 # ============================================================================
 # 1b. elektron-net-mempool: Docker-Buildkontext vorbereiten
@@ -744,6 +748,31 @@ services:
       timeout: 5s
       retries: 20
 
+  # Electrum-Server für die Adress-Suche des Mempool-Explorers. Gleiches
+  # Profil wie die mempool-Services: existiert genau dann, wenn der Explorer
+  # installiert ist. Alle Einstellungen (inkl. RPC-Zugangsdaten, Elektron-
+  # P2P-Magic e1ec7a6e und Node-P2P-Adresse für den Block-Download) kommen
+  # aus der generierten elektron-net-electrs/electrs.toml -- electrs nimmt
+  # Zugangsdaten grundsätzlich NICHT per Env-Var oder CLI an.
+  elektron-electrs:
+    container_name: elektron-electrs
+    profiles:
+      - mempool
+    build:
+      context: ./elektron-net-electrs
+    restart: unless-stopped
+    depends_on:
+      elektron-net:
+        condition: service_started
+    networks:
+      - backend
+    # das Image definiert kein CMD/ENTRYPOINT; Konfiguration wird automatisch
+    # aus /etc/electrs/config.toml gelesen (Standard-Suchpfad von electrs)
+    command: ["electrs"]
+    volumes:
+      - "./elektron-net-electrs/electrs.toml:/etc/electrs/config.toml:ro"
+      - "./data/electrs:/data"
+
   elektron-mempool-api:
     container_name: elektron-mempool-api
     profiles:
@@ -761,6 +790,8 @@ services:
         condition: service_started
       elektron-mempool-db:
         condition: service_healthy
+      elektron-electrs:
+        condition: service_started
     networks:
       - backend
     env_file: ./elektron-net-mempool/.env
@@ -980,9 +1011,12 @@ CORE_RPC_PASSWORD=${RPC_PASSWORD}
 
 # --- Backend ---
 MEMPOOL_NETWORK=mainnet
-# "none" = Core-RPC-only mode, no address lookups (elektron-net-electrs not
-# built yet). Switch to "electrum" once it exists.
-MEMPOOL_BACKEND=none
+# "electrum" = Adress-Suche über den mitinstallierten elektron-electrs
+# (gleiches Compose-Profil "mempool", siehe docker-compose.yml).
+MEMPOOL_BACKEND=electrum
+ELECTRUM_HOST=elektron-electrs
+ELECTRUM_PORT=50002
+ELECTRUM_TLS_ENABLED=false
 STATISTICS_ENABLED=true
 FIAT_PRICE_ENABLED=false
 MEMPOOL_INDEXING_BLOCKS_AMOUNT=${MEMPOOL_INDEXING_BLOCKS_AMOUNT}
@@ -1012,6 +1046,43 @@ HISTORICAL_PRICE=false
 ACCELERATOR_BUTTON=false
 SERVICES_API=
 ENV_EOF
+fi
+
+# ============================================================================
+# 8d. elektron-net-electrs/electrs.toml -- nur falls INSTALL_MEMPOOL=true
+# ============================================================================
+# electrs akzeptiert RPC-Zugangsdaten AUSSCHLIESSLICH aus einer Config-Datei
+# (bewusster Leak-Schutz upstream: weder CLI-Argument noch Env-Var möglich),
+# daher wird hier alles in eine generierte Datei geschrieben, die per
+# docker-compose.yml nach /etc/electrs/config.toml gemountet wird.
+if [ "$INSTALL_MEMPOOL" = "true" ]; then
+  log "Schreibe elektron-net-electrs/electrs.toml ..."
+  cat > elektron-net-electrs/electrs.toml <<ELECTRS_EOF
+# Generiert von install-elektron-stack.sh -- Änderungen hier werden beim
+# nächsten Installer-Lauf überschrieben.
+
+# Node-RPC (gleiche Zugangsdaten wie ppool/faucet/mempool)
+auth = "${RPC_USER}:${RPC_PASSWORD}"
+
+# Node-Endpunkte im backend-Netz: RPC für Mempool/Broadcast,
+# P2P für den Block-Download.
+daemon_rpc_addr = "elektron-net:8332"
+daemon_p2p_addr = "elektron-net:8333"
+
+# Elektron Net Mainnet-Magic (chainparams.cpp) -- ohne sie verwirft der Node
+# jede P2P-Nachricht von electrs. Die Option behält ihren Upstream-Namen,
+# gilt in unserem Fork aber für jedes Netzwerk.
+signet_magic = "e1ec7a6e"
+
+# Electrum-RPC für elektron-mempool-api (ELECTRUM_HOST/ELECTRUM_PORT)
+electrum_rpc_addr = "0.0.0.0:50002"
+
+# Index-Datenbank, persistiert über ./data/electrs
+db_dir = "/data"
+
+log_filters = "INFO"
+ELECTRS_EOF
+  chmod 600 elektron-net-electrs/electrs.toml
 fi
 
 # Docker Compose braucht eine .env im Projekt-Root, um ${FAUCET_DB_*} in
@@ -1182,9 +1253,12 @@ fi
 # 10c. Mempool-Explorer deaktivieren, falls INSTALL_MEMPOOL (wieder) auf false steht
 # ============================================================================
 if [ "$INSTALL_MEMPOOL" != "true" ]; then
-  for svc in elektron-mempool-web elektron-mempool-api elektron-mempool-db; do
+  # elektron-electrs gehört zum Explorer (gleiches Profil) und wird mit
+  # entfernt; sein Index in data/electrs/ bleibt -- wie die Mempool-DB --
+  # für eine spätere Reaktivierung erhalten.
+  for svc in elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs; do
     if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
-      log "INSTALL_MEMPOOL=false -- stoppe und entferne ${svc} (Daten in data/mempool-db/ und data/mempool-cache/ bleiben erhalten) ..."
+      log "INSTALL_MEMPOOL=false -- stoppe und entferne ${svc} (Daten in data/mempool-db/, data/mempool-cache/ und data/electrs/ bleiben erhalten) ..."
       docker compose stop "$svc" 2>/dev/null || true
       docker compose rm -f "$svc" 2>/dev/null || true
     fi
@@ -1202,7 +1276,7 @@ if [ "$INSTALL_SEEDER" = "true" ]; then
 fi
 if [ "$INSTALL_MEMPOOL" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile mempool"
-  EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer"
+  EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
 log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA_SERVICES_LABEL}) ..."
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
@@ -1315,10 +1389,12 @@ SEEDER_SUMMARY
 
  Mempool Explorer (Block-Explorer, optional):$( [ "$INSTALL_MEMPOOL" = "true" ] && echo " aktiv -- https://${MEMPOOL_DOMAIN}" || echo " nicht installiert (INSTALL_MEMPOOL=true zum Aktivieren)" )
 $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
-   Container: elektron-mempool-db, elektron-mempool-api, elektron-mempool-web
+   Container: elektron-mempool-db, elektron-mempool-api, elektron-mempool-web,
+              elektron-electrs (Electrum-Server für die Adress-Suche)
    Hinweis:   zeigt nur die letzten ~197.280 Blöcke (~137 Tage, verpflichtendes
-              Pruning); Adress-Lookups brauchen noch elektron-net-electrs
-              (noch nicht gebaut) -- läuft aktuell im reinen Core-RPC-Modus.
+              Pruning). Adress-Suche läuft über elektron-electrs
+              (MEMPOOL_BACKEND=electrum); direkt nach der Installation braucht
+              dessen Index-Aufbau ein paar Minuten.
 MEMPOOL_SUMMARY
 )
 

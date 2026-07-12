@@ -431,7 +431,7 @@ einmal:
 
 ```bash
 cd /opt/elektron-net-stack
-for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool; do
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool elektron-net-electrs; do
   [ -d "$d" ] && (cd "$d" && git pull)
 done
 docker compose --profile mempool up -d --build   # --profile mempool nur nötig, falls INSTALL_MEMPOOL=true
@@ -458,7 +458,7 @@ Major-Versionssprung vorher deren Release-Notes prüfen).
 
 ```bash
 cd /opt/elektron-net-stack
-for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool; do
+for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool elektron-net-electrs; do
   [ -d "$d" ] && (cd "$d" && git pull)
 done
 docker compose --profile mempool pull
@@ -902,11 +902,17 @@ Pool-UI und Faucet, nur hinter Caddy -- **kein neuer Port**, keine
 Firewall-Änderung nötig.
 
 Standardmäßig **installiert** (`INSTALL_MEMPOOL=true`) -- anders als der
-Seeder gilt diese Integration als stabil, nicht als Testphase. Drei
+Seeder gilt diese Integration als stabil, nicht als Testphase. Vier
 zusätzliche Container: `elektron-mempool-db` (eigene MariaDB-Instanz,
 getrennt von der Faucet-DB), `elektron-mempool-api` (Backend, RPC-Client
 gegen `elektron-net`), `elektron-mempool-web` (Frontend, von Caddy
-erreichbar).
+erreichbar) und `elektron-electrs`
+([`elektron-net-electrs`](https://github.com/kutlusoy/elektron-net-electrs),
+Electrum-Server für die Adress-Suche des Explorers; Konfiguration wird vom
+Installer nach `elektron-net-electrs/electrs.toml` generiert -- electrs
+akzeptiert RPC-Zugangsdaten ausschließlich per Config-Datei). Alle vier
+teilen das Compose-Profil `mempool` und werden gemeinsam installiert,
+gestartet und entfernt.
 
 ### Deaktivieren
 
@@ -916,16 +922,17 @@ INSTALL_MEMPOOL=false
 
 oder interaktiv die Frage im Skript mit `n` beantworten, dann
 `./install-elektron-stack.sh --yes` (bzw. erneut interaktiv laufen lassen).
-Das Skript stoppt/entfernt alle drei Container (ein Compose-Profil allein
+Das Skript stoppt/entfernt alle vier Container (ein Compose-Profil allein
 stoppt keinen bereits laufenden Container, daher macht das Skript diesen
-Schritt explizit, genau wie beim Seeder). Daten in `data/mempool-db/` und
-`data/mempool-cache/` bleiben für ein späteres Wiederaktivieren erhalten --
-komplett entfernen: `rm -rf elektron-net-mempool data/mempool-db data/mempool-cache`.
+Schritt explizit, genau wie beim Seeder). Daten in `data/mempool-db/`,
+`data/mempool-cache/` und `data/electrs/` bleiben für ein späteres
+Wiederaktivieren erhalten -- komplett entfernen:
+`rm -rf elektron-net-mempool elektron-net-electrs data/mempool-db data/mempool-cache data/electrs`.
 
 Manuell, ohne Skript:
 ```bash
-docker compose stop elektron-mempool-web elektron-mempool-api elektron-mempool-db
-docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-db
+docker compose stop elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs
+docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs
 ```
 
 ### Wichtige Einschränkungen
@@ -933,10 +940,10 @@ docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-
 - **~137 Tage Blockhistorie:** Elektron Net erzwingt Pruning auf jedem Node
   (`MandatoryPruneDepth`, ~197.280 Blöcke) -- der Explorer kann grundsätzlich
   keine älteren Blöcke anzeigen, das ist Absicht, kein Bug.
-- **Keine Adress-Lookups:** `MEMPOOL_BACKEND=none` (reiner Core-RPC-Modus) --
-  Adress-Historie/-Guthaben brauchen ein Electrum-Backend
-  (`elektron-net-electrs`, geplant, noch nicht gebaut). Block-/Transaktions-
-  Ansicht funktioniert bereits vollständig.
+- **Adress-Lookups über electrs:** `MEMPOOL_BACKEND=electrum` -- Adress-
+  Historie und -Guthaben kommen vom mitinstallierten `elektron-electrs`.
+  Direkt nach der Erstinstallation braucht dessen Index-Aufbau ein paar
+  Minuten; solange kann die Adress-Suche leere Ergebnisse liefern.
 - **Eigene Mining-Pool-Liste:** `elektron-net-mempool/pools-v2.json` (nicht
   Bitcoins `mempool/mining-pools`) -- PPLNS-Pools werden über ihre
   Auszahlungsadresse erkannt (ein Pool-Tag im Coinbase-scriptSig würde die
