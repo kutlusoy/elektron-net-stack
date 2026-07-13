@@ -309,10 +309,13 @@ rand_base64() { openssl rand -base64 "$1" | tr -d '=+/\n' | cut -c1-"$1"; }
 # ----------------------------------------------------------------------------
 existing_value() {
   # existing_value <file> <KEY> -- prints KEY's current value from a
-  # KEY=VALUE file, or nothing if the file/key doesn't exist yet.
+  # KEY=VALUE file, or nothing if the file/key doesn't exist yet. A missing
+  # key is the normal, expected case for every caller below -- must not
+  # propagate grep's no-match exit code, or "set -e -o pipefail" aborts the
+  # whole script silently on every rerun where an older .env predates a key.
   local file="$1" key="$2"
   [ -f "$file" ] || return 0
-  grep "^${key}=" "$file" 2>/dev/null | tail -n1 | cut -d= -f2-
+  grep "^${key}=" "$file" 2>/dev/null | tail -n1 | cut -d= -f2- || true
 }
 
 PPOOL_ENV_PATH="${STACK_DIR}/elektron-net-ppool/.env"
