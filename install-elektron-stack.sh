@@ -351,10 +351,44 @@ reuse_or_generate FAUCET_WALLET_PASSPHRASE "$FAUCET_ENV_PATH" FAUCET_WALLET_PASS
 reuse_or_generate FAUCET_DB_PASS           "$FAUCET_ENV_PATH" FAUCET_DB_PASS          rand_base64 24
 reuse_or_generate FAUCET_DB_ROOT_PASS      "$FAUCET_ENV_PATH" FAUCET_DB_ROOT_PASS     rand_base64 24
 reuse_or_generate FAUCET_ADMIN_PASS        "$FAUCET_ENV_PATH" FAUCET_ADMIN_PASS       rand_base64 16
-reuse_or_generate MEMPOOL_DB_PASS          "$MEMPOOL_ENV_PATH" MEMPOOL_DB_PASS        rand_base64 24
-reuse_or_generate MEMPOOL_DB_ROOT_PASS     "$MEMPOOL_ENV_PATH" MEMPOOL_DB_ROOT_PASS   rand_base64 24
+# MariaDB's own image only ever reads MYSQL_PASSWORD/MYSQL_ROOT_PASSWORD --
+# those (plus DATABASE_PASSWORD, same value, read by the mempool backend)
+# are the actual key names that end up in the .env below, NOT
+# "MEMPOOL_DB_PASS"/"MEMPOOL_DB_ROOT_PASS" (those are only this script's own
+# bash variable names). Look up the real key so a rerun finds what's
+# actually there instead of silently minting a fresh password every time.
+reuse_or_generate MEMPOOL_DB_PASS          "$MEMPOOL_ENV_PATH" MYSQL_PASSWORD        rand_base64 24
+reuse_or_generate MEMPOOL_DB_ROOT_PASS     "$MEMPOOL_ENV_PATH" MYSQL_ROOT_PASSWORD   rand_base64 24
 
 [ -n "$REUSED_SECRETS" ] && log "Aus vorherigem Lauf wiederverwendet (nicht neu generiert): ${REUSED_SECRETS}"
+
+# ----------------------------------------------------------------------------
+# Defense in depth against the exact class of bug just described (a reuse
+# lookup key that doesn't match what's actually in the .env, whether from
+# today's mismatch or some future rename): if a DB-backed service's data
+# directory already has an initialized database on disk, but its password
+# was just freshly generated rather than reused, the two are guaranteed to
+# be out of sync -- MariaDB only reads MYSQL_PASSWORD on the very first boot
+# against an empty datadir, so an already-populated one has some *other*
+# password baked in for good. Proceeding would silently lock the service out
+# of its own database instead of failing loudly where it's still fixable.
+# ----------------------------------------------------------------------------
+refuse_fresh_secret_for_existing_data() {
+  local var_name="$1" data_dir="$2"
+  [ -d "$data_dir" ] || return 0
+  [ -n "$(ls -A "$data_dir" 2>/dev/null)" ] || return 0
+  case " $REUSED_SECRETS " in
+    *" ${var_name} "*) return 0 ;;
+  esac
+  die "Sicherheitsstopp: '${data_dir}' enthaelt bereits Datenbankdateien, aber ${var_name} wurde gerade NEU generiert statt aus einer bestehenden Config wiederverwendet zu werden. Das wuerde den Dienst von seiner eigenen, bereits befuellten Datenbank aussperren. Bitte manuell pruefen, unter welchem Schluessel die bestehende .env das tatsaechlich verwendete Passwort speichert, und reuse_or_generate() entsprechend anpassen (oder das Passwort dort manuell eintragen), bevor das Skript erneut laeuft."
+}
+
+if [ "$INSTALL_MEMPOOL" = "true" ]; then
+  refuse_fresh_secret_for_existing_data MEMPOOL_DB_PASS      "${STACK_DIR}/data/mempool-db"
+  refuse_fresh_secret_for_existing_data MEMPOOL_DB_ROOT_PASS "${STACK_DIR}/data/mempool-db"
+fi
+refuse_fresh_secret_for_existing_data FAUCET_DB_PASS       "${STACK_DIR}/data/faucet-db"
+refuse_fresh_secret_for_existing_data FAUCET_DB_ROOT_PASS  "${STACK_DIR}/data/faucet-db"
 
 # RPC-Zugangsdaten (rpcauth.py) genauso wiederverwenden statt bei jedem Lauf
 # neu zu erzeugen -- siehe Schritt 3 weiter unten, das ist hier nur die
