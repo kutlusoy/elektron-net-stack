@@ -785,12 +785,21 @@ services:
       timeout: 5s
       retries: 20
 
-  # Electrum-Server für die Adress-Suche des Mempool-Explorers. Gleiches
+  # Electrum-Server für die Adress-Suche des Mempool-Explorers UND für
+  # externe Electrum-Wallet-Clients (z.B. Elektron Electrum). Gleiches
   # Profil wie die mempool-Services: existiert genau dann, wenn der Explorer
   # installiert ist. Alle Einstellungen (inkl. RPC-Zugangsdaten, Elektron-
   # P2P-Magic e1ec7a6e und Node-P2P-Adresse für den Block-Download) kommen
   # aus der generierten elektron-net-electrs/electrs.toml -- electrs nimmt
   # Zugangsdaten grundsätzlich NICHT per Env-Var oder CLI an.
+  #
+  # ports: publiziert den Electrum-RPC-Port direkt vom Host, analog zum
+  # P2P-Seed-Node (8333) oben -- kein Caddy-Block noetig/sinnvoll, da das
+  # Electrum-Protokoll rohes TCP/JSON-RPC ist, kein HTTP. Ohne dieses Mapping
+  # ist electrs trotz "electrum_rpc_addr = 0.0.0.0:50002" innerhalb des
+  # Containers nur ueber das interne "backend"-Docker-Netzwerk erreichbar,
+  # nicht von aussen -- das war der Grund fuer die anfaenglich fehlschlagende
+  # Wallet-Verbindung zu electrs.elektron-net.org:50002.
   elektron-electrs:
     container_name: elektron-electrs
     profiles:
@@ -803,6 +812,8 @@ services:
         condition: service_started
     networks:
       - backend
+    ports:
+      - "50002:50002"
     # das Image definiert kein CMD/ENTRYPOINT; Konfiguration wird automatisch
     # aus /etc/electrs/config.toml gelesen (Standard-Suchpfad von electrs)
     command: ["electrs"]
