@@ -793,13 +793,19 @@ services:
   # aus der generierten elektron-net-electrs/electrs.toml -- electrs nimmt
   # Zugangsdaten grundsätzlich NICHT per Env-Var oder CLI an.
   #
-  # ports: publiziert den Electrum-RPC-Port direkt vom Host, analog zum
-  # P2P-Seed-Node (8333) oben -- kein Caddy-Block noetig/sinnvoll, da das
-  # Electrum-Protokoll rohes TCP/JSON-RPC ist, kein HTTP. Ohne dieses Mapping
-  # ist electrs trotz "electrum_rpc_addr = 0.0.0.0:50002" innerhalb des
-  # Containers nur ueber das interne "backend"-Docker-Netzwerk erreichbar,
-  # nicht von aussen -- das war der Grund fuer die anfaenglich fehlschlagende
-  # Wallet-Verbindung zu electrs.elektron-net.org:50002.
+  # ports: publiziert electrs' einzigen Electrum-RPC-Listener (intern
+  # "0.0.0.0:50001", siehe electrs.toml) zweimal vom Host aus -- als
+  # konventionelles "t" (50001, plain TCP) UND als "s" (50002), beide auf
+  # denselben Container-Port gemappt. WICHTIG: electrs kann selbst kein TLS
+  # terminieren (kein Zertifikats-Handling im Upstream-Code), und dieser
+  # Stack hat aktuell KEINEN separaten TLS-Terminator davor -- 50002 ist
+  # also trotz der "s"-Konvention ebenfalls reines Plain-TCP, kein echtes
+  # SSL. Wallets, die auf dem "s"-Port zwingend einen TLS-Handshake
+  # erwarten, schlagen dort fehl; die verlassen sich am besten auf 50001
+  # ("t") bzw. eine "kein SSL"-Einstellung für den Server-Eintrag. Ohne
+  # dieses Mapping wäre electrs nur über das interne "backend"-Docker-Netzwerk
+  # erreichbar, nicht von außen -- das war der Grund für die anfänglich
+  # fehlschlagende Wallet-Verbindung zu electrs.elektron-net.org:50002.
   elektron-electrs:
     container_name: elektron-electrs
     profiles:
@@ -813,7 +819,8 @@ services:
     networks:
       - backend
     ports:
-      - "50002:50002"
+      - "50001:50001"
+      - "50002:50001"
     # das Image definiert kein CMD/ENTRYPOINT; Konfiguration wird automatisch
     # aus /etc/electrs/config.toml gelesen (Standard-Suchpfad von electrs)
     command: ["electrs"]
@@ -1063,7 +1070,7 @@ MEMPOOL_NETWORK=mainnet
 # (gleiches Compose-Profil "mempool", siehe docker-compose.yml).
 MEMPOOL_BACKEND=electrum
 ELECTRUM_HOST=elektron-electrs
-ELECTRUM_PORT=50002
+ELECTRUM_PORT=50001
 ELECTRUM_TLS_ENABLED=false
 STATISTICS_ENABLED=true
 FIAT_PRICE_ENABLED=false
@@ -1122,8 +1129,11 @@ daemon_p2p_addr = "elektron-net:8333"
 # gilt in unserem Fork aber für jedes Netzwerk.
 signet_magic = "e1ec7a6e"
 
-# Electrum-RPC für elektron-mempool-api (ELECTRUM_HOST/ELECTRUM_PORT)
-electrum_rpc_addr = "0.0.0.0:50002"
+# Electrum-RPC -- ein einzelner Listener (electrs unterstützt kein Multi-
+# Bind), intern für elektron-mempool-api (ELECTRUM_HOST/ELECTRUM_PORT) UND
+# extern für Wallet-Clients über den docker-compose.yml-Port-Mapping-Trick
+# (50001 UND 50002 -> dieser eine Port) genutzt, siehe Kommentar dort.
+electrum_rpc_addr = "0.0.0.0:50001"
 
 # Index-Datenbank, persistiert über ./data/electrs
 db_dir = "/data"
@@ -1363,14 +1373,25 @@ if command -v ufw >/dev/null 2>&1; then
       ufw delete allow 53/udp 2>/dev/null || true
       ufw delete allow 53/tcp 2>/dev/null || true
     fi
+    if [ "$INSTALL_MEMPOOL" = "true" ]; then
+      ufw allow 50001/tcp comment 'Elektron electrs Electrum (t)' || true
+      ufw allow 50002/tcp comment 'Elektron electrs Electrum (s, plain TCP trotz Portname)' || true
+    else
+      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
+      ufw delete allow 50001/tcp 2>/dev/null || true
+      ufw delete allow 50002/tcp 2>/dev/null || true
+    fi
     ufw reload || true
   else
-    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp 3333/tcp 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )"
+    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp 3333/tcp 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
   fi
 else
-  warn "ufw nicht gefunden -- Ports 8333, 3333, 80, 443$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' ) manuell im Hetzner Cloud Firewall öffnen."
+  warn "ufw nicht gefunden -- Ports 8333, 3333, 80, 443$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manuell im Hetzner Cloud Firewall öffnen."
 fi
-warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben $( [ "$INSTALL_SEEDER" = "true" ] && echo '5' || echo '4' ) Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
+FIREWALL_PORT_COUNT=4
+[ "$INSTALL_SEEDER" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
+[ "$INSTALL_MEMPOOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 2))
+warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben ${FIREWALL_PORT_COUNT} Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
 
 # ============================================================================
 # 13. Zusammenfassung -- wird angezeigt UND dauerhaft in eine Datei
@@ -1443,6 +1464,9 @@ $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
               Pruning). Adress-Suche läuft über elektron-electrs
               (MEMPOOL_BACKEND=electrum); direkt nach der Installation braucht
               dessen Index-Aufbau ein paar Minuten.
+   Electrum:  ${NODE_DOMAIN}:50001 (t, plain TCP) und :50002 (s -- ACHTUNG:
+              trotz Portname ebenfalls nur plain TCP, kein echtes SSL/TLS,
+              siehe docker-compose.yml-Kommentar bei elektron-electrs)
 MEMPOOL_SUMMARY
 )
 
