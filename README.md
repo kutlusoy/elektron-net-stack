@@ -754,6 +754,19 @@ die Cloud-Firewall vor ufw und blockt IPv6-Traffic trotzdem.
 
 Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
 
+**Läuft `INSTALL_MEMPOOL=true` (Default):** zwei weitere Ports kommen dazu
+-- `50001/tcp` und `50002/tcp` (electrs, siehe
+["Mempool Explorer"](#mempool-explorer-optional)) --, macht 6 statt 4 Ports
+in ufw UND im Hetzner Cloud-Firewall-Panel. `install-elektron-stack.sh`
+übernimmt das bei `FIREWALL_AUTO_CONFIGURE=true` automatisch (inkl. wieder
+Schließen, falls `INSTALL_MEMPOOL` nachträglich auf `false` gesetzt wird);
+manuell:
+```bash
+sudo ufw allow 50001/tcp comment 'Elektron electrs Electrum (t)'
+sudo ufw allow 50002/tcp comment 'Elektron electrs Electrum (s, plain TCP trotz Portname)'
+sudo ufw reload
+```
+
 ## 8. Prüfen
 
 - `https://pplns.elektron-net.org` → Pool-Dashboard
@@ -898,8 +911,11 @@ Integration, aktuell nicht aktiv gepflegt.
 [`elektron-net-mempool`](https://github.com/kutlusoy/elektron-net-mempool)
 ist ein Fork von [mempool.space](https://github.com/mempool/mempool): Block-
 und Mempool-Explorer, Mining-Dashboard, Gebührenschätzung. Läuft, wie
-Pool-UI und Faucet, nur hinter Caddy -- **kein neuer Port**, keine
-Firewall-Änderung nötig.
+Pool-UI und Faucet, hinter Caddy (kein neuer HTTP-Port). Bringt zusätzlich
+aber `elektron-electrs` mit, das seinen eigenen Electrum-RPC-Port direkt
+vom Host published (kein Caddy, da rohes TCP/JSON-RPC statt HTTP) --
+**zwei neue Ports, 50001/tcp und 50002/tcp**, siehe "Wichtige
+Einschränkungen" unten und der Firewall-Hinweis in Schritt 7.
 
 Standardmäßig **installiert** (`INSTALL_MEMPOOL=true`) -- anders als der
 Seeder gilt diese Integration als stabil, nicht als Testphase. Vier
@@ -908,11 +924,12 @@ getrennt von der Faucet-DB), `elektron-mempool-api` (Backend, RPC-Client
 gegen `elektron-net`), `elektron-mempool-web` (Frontend, von Caddy
 erreichbar) und `elektron-electrs`
 ([`elektron-net-electrs`](https://github.com/kutlusoy/elektron-net-electrs),
-Electrum-Server für die Adress-Suche des Explorers; Konfiguration wird vom
-Installer nach `elektron-net-electrs/electrs.toml` generiert -- electrs
-akzeptiert RPC-Zugangsdaten ausschließlich per Config-Datei). Alle vier
-teilen das Compose-Profil `mempool` und werden gemeinsam installiert,
-gestartet und entfernt.
+Electrum-Server für die Adress-Suche des Explorers UND für externe
+Electrum-Wallet-Clients; Konfiguration wird vom Installer nach
+`elektron-net-electrs/electrs.toml` generiert -- electrs akzeptiert
+RPC-Zugangsdaten ausschließlich per Config-Datei). Alle vier teilen das
+Compose-Profil `mempool` und werden gemeinsam installiert, gestartet und
+entfernt.
 
 ### Deaktivieren
 
@@ -924,15 +941,17 @@ oder interaktiv die Frage im Skript mit `n` beantworten, dann
 `./install-elektron-stack.sh --yes` (bzw. erneut interaktiv laufen lassen).
 Das Skript stoppt/entfernt alle vier Container (ein Compose-Profil allein
 stoppt keinen bereits laufenden Container, daher macht das Skript diesen
-Schritt explizit, genau wie beim Seeder). Daten in `data/mempool-db/`,
-`data/mempool-cache/` und `data/electrs/` bleiben für ein späteres
-Wiederaktivieren erhalten -- komplett entfernen:
+Schritt explizit, genau wie beim Seeder) UND schließt die beiden electrs-
+Ports (50001/tcp, 50002/tcp) wieder, falls `FIREWALL_AUTO_CONFIGURE=true`.
+Daten in `data/mempool-db/`, `data/mempool-cache/` und `data/electrs/`
+bleiben für ein späteres Wiederaktivieren erhalten -- komplett entfernen:
 `rm -rf elektron-net-mempool elektron-net-electrs data/mempool-db data/mempool-cache data/electrs`.
 
 Manuell, ohne Skript:
 ```bash
 docker compose stop elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs
 docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs
+sudo ufw delete allow 50001/tcp && sudo ufw delete allow 50002/tcp
 ```
 
 ### Wichtige Einschränkungen
@@ -944,6 +963,15 @@ docker compose rm -f elektron-mempool-web elektron-mempool-api elektron-mempool-
   Historie und -Guthaben kommen vom mitinstallierten `elektron-electrs`.
   Direkt nach der Erstinstallation braucht dessen Index-Aufbau ein paar
   Minuten; solange kann die Adress-Suche leere Ergebnisse liefern.
+- **electrs-Ports 50001 ("t") und 50002 ("s") sind BEIDE reines Plain-TCP,
+  kein echtes SSL/TLS:** electrs terminiert selbst kein TLS, und dieser
+  Stack hat aktuell keinen separaten TLS-Terminator davor. Der Port 50002
+  folgt nur der Namenskonvention ("s" für SSL bei Electrum-Server-Listen),
+  liefert technisch aber dasselbe Plain-TCP wie 50001 -- externe Electrum-
+  Wallets, die auf 50002 zwingend TLS erwarten, schlagen dort fehl und
+  sollten stattdessen 50001 bzw. eine "kein SSL"-Einstellung nutzen. Echtes
+  TLS für 50002 (z. B. via stunnel + Let's-Encrypt-Zertifikat) ist noch
+  nicht umgesetzt.
 - **Eigene Mining-Pool-Liste:** `elektron-net-mempool/pools-v2.json` (nicht
   Bitcoins `mempool/mining-pools`) -- PPLNS-Pools werden über ihre
   Auszahlungsadresse erkannt (ein Pool-Tag im Coinbase-scriptSig würde die
