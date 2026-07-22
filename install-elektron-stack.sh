@@ -3,8 +3,8 @@
 # Elektron Net -- one-shot install script (node + ppool + ppool-ui + faucet + Caddy)
 #
 # Usage:
-#   1. Copy this file (and, if you have one, elektron-stack.conf) onto the
-#      Hetzner server (Hetzner console / scp).
+#   1. Copy this file (and, if you have one, elektron-stack.conf) onto your
+#      server (browser console / scp).
 #   2. chmod +x install-elektron-stack.sh
 #   3. ./install-elektron-stack.sh
 #
@@ -52,10 +52,11 @@ GITHUB_USER="kutlusoy"                        # github.com/<user>/elektron-net..
 # about). Asked interactively below unless --yes is given.
 AUTO_UPDATE_REPOS="false"
 SERVER_IP="46.225.163.85"                     # only used for the DNS sanity check
-# Fallback-Wert, falls die automatische Erkennung weiter unten (ip -6 addr)
-# nichts findet. Das Hetzner-Panel zeigt im Networking-Tab nur das geroutete
-# /64-Subnetz (z.B. 2a01:4f8:1c18:ea01::/64), NICHT die exakt konfigurierte
-# Host-Adresse -- die wird gleich live auf diesem Server ausgelesen.
+# Fallback value, used only if the automatic detection further below
+# (ip -6 addr) finds nothing. Some provider panels (e.g. Hetzner's) only
+# show the routed /64 subnet in their networking tab (e.g.
+# 2a01:4f8:1c18:ea01::/64), NOT the exact configured host address -- that
+# gets read live on this server right below instead.
 SERVER_IPV6="2a01:4f8:1c18:ea01::1"
 
 # --- Domains (must already point to SERVER_IP in DNS, see README) ---
@@ -196,14 +197,14 @@ while [ $# -gt 0 ]; do
     --config=*) CONFIG_FILE="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) die "Unbekannte Option: $1 (siehe --help)" ;;
+    *) die "Unknown option: $1 (see --help)" ;;
   esac
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -z "$CONFIG_FILE" ] && [ -f "${SCRIPT_DIR}/elektron-stack.conf" ]; then
   CONFIG_FILE="${SCRIPT_DIR}/elektron-stack.conf"
-  log "Gefundene Config-Datei wird automatisch verwendet: ${CONFIG_FILE}"
+  log "Found config file, using it automatically: ${CONFIG_FILE}"
 fi
 
 is_config_var() {
@@ -216,15 +217,15 @@ is_config_var() {
 # file can only ever set plain values from the whitelist above -- it can
 # never execute shell code, even if it came from somewhere untrusted.
 if [ -n "$CONFIG_FILE" ]; then
-  [ -f "$CONFIG_FILE" ] || die "Config-Datei nicht gefunden: $CONFIG_FILE"
-  log "Lade Konfiguration aus ${CONFIG_FILE} ..."
+  [ -f "$CONFIG_FILE" ] || die "Config file not found: $CONFIG_FILE"
+  log "Loading configuration from ${CONFIG_FILE} ..."
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line%%#*}"
     line="$(printf '%s' "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     [ -z "$line" ] && continue
     case "$line" in
       *=*) ;;
-      *) warn "Zeile ohne '=' in ${CONFIG_FILE} ignoriert: $line"; continue ;;
+      *) warn "Ignoring line without '=' in ${CONFIG_FILE}: $line"; continue ;;
     esac
     key="$(printf '%s' "${line%%=*}" | sed -e 's/[[:space:]]*$//')"
     val="$(printf '%s' "${line#*=}" | sed -e 's/^[[:space:]]*//')"
@@ -232,7 +233,7 @@ if [ -n "$CONFIG_FILE" ]; then
     if is_config_var "$key"; then
       printf -v "$key" '%s' "$val"
     else
-      warn "Unbekannter Schlüssel in ${CONFIG_FILE} ignoriert: $key"
+      warn "Ignoring unknown key in ${CONFIG_FILE}: $key"
     fi
   done < "$CONFIG_FILE"
 fi
@@ -245,60 +246,60 @@ fi
 ask() {
   local var_name="$1" prompt_text="$2" current input
   current="${!var_name}"
-  read -rp "$prompt_text [${current:-leer}]: " input
+  read -rp "$prompt_text [${current:-empty}]: " input
   if [ -n "$input" ]; then
     printf -v "$var_name" '%s' "$input"
   fi
 }
 
-# Strict j/n prompt for boolean settings -- anything that isn't a clear
+# Strict y/n prompt for boolean settings -- anything that isn't a clear
 # yes/no answer keeps the current default rather than guessing.
 ask_yes_no() {
   local var_name="$1" prompt_text="$2" current input default_label
   current="${!var_name}"
-  [ "$current" = "true" ] && default_label="J/n" || default_label="j/N"
+  [ "$current" = "true" ] && default_label="Y/n" || default_label="y/N"
   read -rp "$prompt_text [$default_label]: " input
   case "$input" in
-    [jJyY]*) printf -v "$var_name" 'true' ;;
+    [yY]*) printf -v "$var_name" 'true' ;;
     [nN]*) printf -v "$var_name" 'false' ;;
     "") : ;;
-    *) warn "Unklare Eingabe ('$input') -- behalte den bisherigen Wert ($current)." ;;
+    *) warn "Unclear input ('$input') -- keeping the current value ($current)." ;;
   esac
 }
 
 if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
-  log "Interaktive Konfiguration -- Enter übernimmt den Default-/Config-Wert. Mit --yes überspringen."
-  ask_yes_no AUTO_UPDATE_REPOS "Vor dem Bauen nach Updates in den geklonten Repos suchen und per 'git pull --ff-only' einspielen?"
-  ask GITHUB_USER   "GitHub-Benutzername (github.com/<user>/elektron-net...)"
-  ask SERVER_IP     "Öffentliche IPv4-Adresse dieses Servers"
-  ask SERVER_IPV6   "Öffentliche IPv6-Adresse (wird unten zusätzlich automatisch erkannt)"
-  ask NODE_DOMAIN   "Domain für den P2P-Seed-Node"
-  ask CADDY_EMAIL   "E-Mail für Let's Encrypt (optional, Enter zum Überspringen)"
-  log "Alle Passwörter/Secrets (JWT_SECRET, DB-Passwörter, Wallet-Passphrase, RPC-Passwort,"
-  log "Faucet-Admin-Passwort) werden gleich automatisch generiert, sofern nicht per Config-Datei vorgegeben."
-  ask_yes_no INSTALL_POOL "PPLNS-Mining-Pool (elektron-net-ppool + Dashboard) installieren?"
+  log "Interactive configuration -- Enter keeps the default/config value. Skip this with --yes."
+  ask_yes_no AUTO_UPDATE_REPOS "Check the cloned repos for updates before building, and apply them via 'git pull --ff-only'?"
+  ask GITHUB_USER   "GitHub username (github.com/<user>/elektron-net...)"
+  ask SERVER_IP     "Public IPv4 address of this server"
+  ask SERVER_IPV6   "Public IPv6 address (also auto-detected below)"
+  ask NODE_DOMAIN   "Domain for the P2P seed node"
+  ask CADDY_EMAIL   "Email for Let's Encrypt (optional, press Enter to skip)"
+  log "All passwords/secrets (JWT_SECRET, DB passwords, wallet passphrase, RPC password,"
+  log "faucet admin password) will be generated automatically in a moment, unless supplied via the config file."
+  ask_yes_no INSTALL_POOL "Install the PPLNS mining pool (elektron-net-ppool + dashboard)?"
   if [ "$INSTALL_POOL" = "true" ]; then
-    ask POOL_DOMAIN "Domain für das Pool-Dashboard"
+    ask POOL_DOMAIN "Domain for the pool dashboard"
   fi
-  ask_yes_no INSTALL_FAUCET "Faucet (elektron-net-faucet) installieren?"
+  ask_yes_no INSTALL_FAUCET "Install the faucet (elektron-net-faucet)?"
   if [ "$INSTALL_FAUCET" = "true" ]; then
-    ask FAUCET_DOMAIN "Domain für den Faucet"
-    ask FAUCET_HCAPTCHA_SITE   "hCaptcha Site-Key von hcaptcha.com (optional, aber empfohlen)"
-    ask FAUCET_HCAPTCHA_SECRET "hCaptcha Secret-Key (optional)"
+    ask FAUCET_DOMAIN "Domain for the faucet"
+    ask FAUCET_HCAPTCHA_SITE   "hCaptcha site key from hcaptcha.com (optional, but recommended)"
+    ask FAUCET_HCAPTCHA_SECRET "hCaptcha secret key (optional)"
   fi
-  ask_yes_no INSTALL_SEEDER "Seeder (DNS-Crawler, optional, noch in Testphase) zusätzlich installieren? Siehe README 'Seeder (optional, Testphase)'"
+  ask_yes_no INSTALL_SEEDER "Also install the seeder (DNS crawler, optional, still in testing)? See README 'Seeder (optional, testing phase)'"
   if [ "$INSTALL_SEEDER" = "true" ]; then
-    ask SEEDER_HOST "Hostname des DNS-Seeds (braucht eigene NS-Delegation in DNS, siehe README)"
-    ask SEEDER_NS   "Hostname des Nameservers für den Seed"
-    ask SEEDER_MBOX "E-Mail-Adresse für SOA-Records (@ als . geschrieben, z.B. admin.eleknet.org)"
+    ask SEEDER_HOST "Hostname of the DNS seed itself (needs its own NS delegation in DNS, see README)"
+    ask SEEDER_NS   "Hostname of the nameserver for the seed"
+    ask SEEDER_MBOX "Email address for the SOA record (@ written as ., e.g. admin.example.com)"
   fi
-  ask_yes_no INSTALL_MEMPOOL "Mempool-Explorer (Block-Explorer/Visualizer, wie mempool.space) zusätzlich installieren?"
+  ask_yes_no INSTALL_MEMPOOL "Also install the Mempool Explorer (block explorer/visualizer, like mempool.space)?"
   if [ "$INSTALL_MEMPOOL" = "true" ]; then
-    ask MEMPOOL_DOMAIN "Domain für den Mempool-Explorer"
-    ask_yes_no MEMPOOL_ACCELERATOR "Accelerator-Menü/Boost-Button im Explorer aktivieren (verlinkt auf mempool.space's Fee-Beschleunigungsdienst, rein ausgehende Anfrage, keine neue Portfreigabe)?"
+    ask MEMPOOL_DOMAIN "Domain for the Mempool Explorer"
+    ask_yes_no MEMPOOL_ACCELERATOR "Enable the Accelerator menu/boost button in the explorer (links to mempool.space's fee acceleration service, purely outbound request, no new port)?"
   fi
 else
-  log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
+  log "Non-interactive mode (--yes or no terminal) -- using defaults/config file without prompting."
 fi
 
 # ============================================================================
@@ -370,7 +371,7 @@ reuse_or_generate FAUCET_ADMIN_PASS        "$FAUCET_ENV_PATH" FAUCET_ADMIN_PASS 
 reuse_or_generate MEMPOOL_DB_PASS          "$MEMPOOL_ENV_PATH" MYSQL_PASSWORD        rand_base64 24
 reuse_or_generate MEMPOOL_DB_ROOT_PASS     "$MEMPOOL_ENV_PATH" MYSQL_ROOT_PASSWORD   rand_base64 24
 
-[ -n "$REUSED_SECRETS" ] && log "Aus vorherigem Lauf wiederverwendet (nicht neu generiert): ${REUSED_SECRETS}"
+[ -n "$REUSED_SECRETS" ] && log "Reused from a previous run (not regenerated): ${REUSED_SECRETS}"
 
 # ----------------------------------------------------------------------------
 # Defense in depth against the exact class of bug just described (a reuse
@@ -390,7 +391,7 @@ refuse_fresh_secret_for_existing_data() {
   case " $REUSED_SECRETS " in
     *" ${var_name} "*) return 0 ;;
   esac
-  die "Sicherheitsstopp: '${data_dir}' enthaelt bereits Datenbankdateien, aber ${var_name} wurde gerade NEU generiert statt aus einer bestehenden Config wiederverwendet zu werden. Das wuerde den Dienst von seiner eigenen, bereits befuellten Datenbank aussperren. Bitte manuell pruefen, unter welchem Schluessel die bestehende .env das tatsaechlich verwendete Passwort speichert, und reuse_or_generate() entsprechend anpassen (oder das Passwort dort manuell eintragen), bevor das Skript erneut laeuft."
+  die "Safety stop: '${data_dir}' already contains database files, but ${var_name} was just freshly generated instead of being reused from an existing config. That would lock the service out of its own, already-populated database. Please check manually under which key the existing .env stores the password actually in use, and adjust reuse_or_generate() accordingly (or enter the password there by hand), before running this script again."
 }
 
 if [ "$INSTALL_MEMPOOL" = "true" ]; then
@@ -400,9 +401,9 @@ fi
 refuse_fresh_secret_for_existing_data FAUCET_DB_PASS       "${STACK_DIR}/data/faucet-db"
 refuse_fresh_secret_for_existing_data FAUCET_DB_ROOT_PASS  "${STACK_DIR}/data/faucet-db"
 
-# RPC-Zugangsdaten (rpcauth.py) genauso wiederverwenden statt bei jedem Lauf
-# neu zu erzeugen -- siehe Schritt 3 weiter unten, das ist hier nur die
-# Vorab-Prüfung, ob es sie schon gibt.
+# Reuse the RPC credentials (rpcauth.py) the same way instead of generating
+# new ones on every run -- see step 3 further below, this here is just the
+# upfront check for whether they already exist.
 REUSE_RPC_AUTH=false
 EXISTING_RPC_AUTH_LINE="$(existing_value "$BITCOIN_CONF_PATH" rpcauth)"
 EXISTING_RPC_USER="${EXISTING_RPC_AUTH_LINE%%:*}"
@@ -411,11 +412,11 @@ if [ -n "$EXISTING_RPC_AUTH_LINE" ] && [ -n "$EXISTING_RPC_PASSWORD" ] && [ "$EX
   REUSE_RPC_AUTH=true
 fi
 
-# Wallet-Adressen genauso: getnewaddress liefert bei jedem Aufruf eine NEUE,
-# bislang unbenutzte Adresse -- ein Rerun darf also nicht einfach erneut
-# aufrufen, sonst zeigt POOL_WALLET_ADDRESS/FAUCET_SENDER_ADDR danach auf
-# eine leere Adresse, während bereits eingezahltes ELEK auf der alten liegt.
-# Nur reuse-n, wenn der Wallet-Name seit dem letzten Lauf unverändert ist.
+# Wallet addresses the same way: getnewaddress returns a NEW, previously
+# unused address on every call -- so a rerun must not simply call it again,
+# or POOL_WALLET_ADDRESS/FAUCET_SENDER_ADDR would end up pointing at an
+# empty address while any already-deposited ELEK sits on the old one. Only
+# reuse it if the wallet name is unchanged since the last run.
 EXISTING_POOL_WALLET_ADDRESS=""
 if [ "$(existing_value "$PPOOL_ENV_PATH" WALLET_RPC_WALLET_NAME)" = "$POOL_WALLET_NAME" ]; then
   EXISTING_POOL_WALLET_ADDRESS="$(existing_value "$PPOOL_ENV_PATH" POOL_WALLET_ADDRESS)"
@@ -425,22 +426,22 @@ if [ "$(existing_value "$FAUCET_ENV_PATH" FAUCET_WALLET_NAME)" = "$FAUCET_WALLET
   EXISTING_FAUCET_SENDER_ADDR="$(existing_value "$FAUCET_ENV_PATH" FAUCET_SENDER_ADDR)"
 fi
 
-command -v docker >/dev/null 2>&1 || die "Docker ist nicht installiert."
-docker compose version >/dev/null 2>&1 || die "Docker Compose Plugin fehlt."
-command -v git >/dev/null 2>&1    || die "git ist nicht installiert."
-command -v python3 >/dev/null 2>&1 || die "python3 ist nicht installiert (wird für rpcauth.py gebraucht)."
-command -v openssl >/dev/null 2>&1 || die "openssl ist nicht installiert."
+command -v docker >/dev/null 2>&1 || die "Docker is not installed."
+docker compose version >/dev/null 2>&1 || die "Docker Compose plugin is missing."
+command -v git >/dev/null 2>&1    || die "git is not installed."
+command -v python3 >/dev/null 2>&1 || die "python3 is not installed (needed for rpcauth.py)."
+command -v openssl >/dev/null 2>&1 || die "openssl is not installed."
 
-# --- Tatsächlich konfigurierte IPv6-Adresse auf diesem Server auslesen ---
-# Das Hetzner-Panel zeigt nur das geroutete /64, nicht die konkrete Adresse,
-# die der Server sich selbst gegeben hat -- also lieber direkt nachsehen,
-# statt der Fallback-Annahme (::1) blind zu vertrauen.
+# --- Read the actually configured IPv6 address on this server ---
+# Some provider panels only show the routed /64, not the specific address
+# the server has given itself -- so check directly instead of blindly
+# trusting the fallback assumption (::1).
 DETECTED_IPV6="$(ip -6 addr show scope global 2>/dev/null | awk '/inet6/{print $2}' | cut -d/ -f1 | grep -v '^fe80' | head -n1 || true)"
 if [ -n "$DETECTED_IPV6" ] && [ "$DETECTED_IPV6" != "$SERVER_IPV6" ]; then
-  warn "Erkannte IPv6-Adresse auf diesem Server ($DETECTED_IPV6) weicht vom CONFIG-Wert ($SERVER_IPV6) ab -- verwende die erkannte Adresse."
+  warn "Detected IPv6 address on this server ($DETECTED_IPV6) differs from the CONFIG value ($SERVER_IPV6) -- using the detected address."
   SERVER_IPV6="$DETECTED_IPV6"
 elif [ -z "$DETECTED_IPV6" ]; then
-  warn "Konnte keine globale IPv6-Adresse auf diesem Server finden -- IPv6 evtl. noch nicht konfiguriert. Verwende weiterhin den CONFIG-Wert ($SERVER_IPV6), bitte prüfen."
+  warn "Could not find a global IPv6 address on this server -- IPv6 may not be configured yet. Still using the CONFIG value ($SERVER_IPV6), please check."
 fi
 
 # --- Soft DNS sanity check (does not abort on mismatch, just warns) ---
@@ -451,21 +452,21 @@ DOMAINS_TO_CHECK="$NODE_DOMAIN"
 for d in $DOMAINS_TO_CHECK; do
   resolved="$(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
   if [ -z "$resolved" ]; then
-    warn "$d löst (noch) nicht auf. Caddy wird für dieses Encpoint kein TLS bekommen, bis DNS propagiert ist."
+    warn "$d does not resolve (yet). Caddy won't get TLS for this endpoint until DNS has propagated."
   elif [ "$resolved" != "$SERVER_IP" ]; then
-    warn "$d löst auf $resolved auf, nicht auf $SERVER_IP. Bitte DNS-Eintrag prüfen."
+    warn "$d resolves to $resolved, not to $SERVER_IP. Please check the DNS record."
   fi
 
   resolved6="$(getent ahostsv6 "$d" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
   if [ -z "$resolved6" ]; then
-    warn "$d hat (noch) keinen AAAA-Eintrag -- IPv6-Erreichbarkeit fehlt, IPv4 funktioniert trotzdem."
+    warn "$d has no AAAA record (yet) -- IPv6 reachability is missing, IPv4 still works."
   elif [ "$resolved6" != "$SERVER_IPV6" ]; then
-    warn "$d (AAAA) löst auf $resolved6 auf, nicht auf $SERVER_IPV6. Bitte DNS-Eintrag prüfen."
+    warn "$d (AAAA) resolves to $resolved6, not to $SERVER_IPV6. Please check the DNS record."
   fi
 done
 
 # ============================================================================
-# 1. Repos klonen
+# 1. Clone the repos
 # ============================================================================
 mkdir -p "$STACK_DIR"
 cd "$STACK_DIR"
@@ -483,15 +484,15 @@ update_if_enabled() {
     && local_head="$(git rev-parse HEAD)" \
     && remote_head="$(git rev-parse '@{upstream}' 2>/dev/null || true)" \
     && if [ -z "$remote_head" ]; then
-         warn "$repo: kein Upstream-Tracking-Branch gefunden, überspringe Update-Check."
+         warn "$repo: no upstream tracking branch found, skipping update check."
        elif [ "$local_head" = "$remote_head" ]; then
-         log "$repo: bereits aktuell, keine neuen Commits."
+         log "$repo: already up to date, no new commits."
        elif git merge-base --is-ancestor HEAD "@{upstream}"; then
-         log "$repo: neue Commits gefunden, aktualisiere (fast-forward):"
+         log "$repo: new commits found, updating (fast-forward):"
          git log --oneline "HEAD..@{upstream}"
          git pull --ff-only --quiet
        else
-         warn "$repo: lokaler Branch ist vom Upstream abgewichen (eigene Commits?) -- überspringe automatisches Update, bitte manuell prüfen."
+         warn "$repo: local branch has diverged from upstream (own commits?) -- skipping automatic update, please check manually."
        fi
   )
 }
@@ -499,20 +500,20 @@ update_if_enabled() {
 clone_or_skip() {
   local repo="$1"
   if [ -d "$repo/.git" ]; then
-    log "Repo $repo existiert schon (vollständiger git-Klon), überspringe Neu-Klonen."
+    log "Repo $repo already exists (full git clone), skipping re-clone."
     update_if_enabled "$repo"
     return
   fi
 
   if [ -d "$repo" ] && [ "$(ls -A "$repo" 2>/dev/null)" ]; then
-    # Verzeichnis existiert bereits und ist nicht leer -- typischerweise weil
-    # es aus DIESEM Deploy-Repo (elektron-net-stack) kommt und schon unsere
-    # Zusatzdateien enthält (Dockerfile, bitcoin.conf, .env-Template, ...).
-    # `git clone` würde hier mit "destination path already exists and is
-    # not an empty directory" abbrechen -- also stattdessen in ein
-    # Temp-Verzeichnis klonen und nur das reinkopieren, was noch nicht da
-    # ist (unsere bereits vorhandenen Dateien bleiben unangetastet).
-    log "Verzeichnis $repo existiert schon und ist nicht leer -- klone Upstream in ein Temp-Verzeichnis und merge non-destruktiv rein."
+    # Directory already exists and isn't empty -- typically because it
+    # comes from THIS deploy repo (elektron-net-stack) and already
+    # contains our extra files (Dockerfile, bitcoin.conf, .env template,
+    # ...). `git clone` would abort here with "destination path already
+    # exists and is not an empty directory" -- so clone upstream into a
+    # temp directory instead and only copy in what isn't there yet (our
+    # already-existing files stay untouched).
+    log "Directory $repo already exists and isn't empty -- cloning upstream into a temp directory and merging non-destructively."
     local tmp
     tmp="$(mktemp -d)"
     git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$tmp"
@@ -520,7 +521,7 @@ clone_or_skip() {
     cp -rn "$tmp"/. "$repo"/
     rm -rf "$tmp"
   else
-    log "Klone $repo ..."
+    log "Cloning $repo ..."
     git clone "https://github.com/${GITHUB_USER}/${repo}.git" "$repo"
   fi
 }
@@ -531,9 +532,10 @@ clone_or_skip "elektron-net"
 [ "$INSTALL_FAUCET" = "true" ] && clone_or_skip "elektron-net-faucet"
 [ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-mempool"
-# elektron-net-electrs (Electrum-Server) gehört fest zum Mempool-Explorer:
-# er liefert dessen Adress-Suche (MEMPOOL_BACKEND=electrum) und teilt sein
-# Compose-Profil "mempool" -- installiert/gestartet/entfernt immer gemeinsam.
+# elektron-net-electrs (Electrum server) belongs firmly to the Mempool
+# Explorer: it provides its address lookups (MEMPOOL_BACKEND=electrum) and
+# shares its Compose profile "mempool" -- always installed/started/removed
+# together.
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-electrs"
 
 mkdir -p caddy data/elektron-net external-wallets
@@ -543,7 +545,7 @@ mkdir -p caddy data/elektron-net external-wallets
 [ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache data/electrs
 
 # ============================================================================
-# 1b. elektron-net-mempool: Docker-Buildkontext vorbereiten
+# 1b. elektron-net-mempool: prepare the Docker build context
 # ============================================================================
 # Mirrors upstream mempool.space's docker/init.sh (not run automatically by
 # the mempool repo itself, and not shipped as its own script there): stages
@@ -556,7 +558,7 @@ mkdir -p caddy data/elektron-net external-wallets
 # AUTO_UPDATE_REPOS pull that changes these templates is picked up on the
 # next build.
 if [ "$INSTALL_MEMPOOL" = "true" ]; then
-  log "Bereite elektron-net-mempool Docker-Buildkontext vor (backend/frontend aus docker/ stagen) ..."
+  log "Preparing elektron-net-mempool Docker build context (staging backend/frontend from docker/) ..."
   ( cd elektron-net-mempool \
     && cp -r ./docker/backend/. ./backend/ \
     && cp -r ./docker/frontend/. ./frontend/ \
@@ -571,9 +573,9 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
 fi
 
 # ============================================================================
-# 2. elektron-net: Dockerfile + Entrypoint (existieren im Repo noch nicht)
+# 2. elektron-net: Dockerfile + entrypoint (don't exist in the repo yet)
 # ============================================================================
-log "Schreibe elektron-net/Dockerfile ..."
+log "Writing elektron-net/Dockerfile ..."
 cat > elektron-net/Dockerfile <<'DOCKERFILE_EOF'
 ############################
 # Build stage              #
@@ -622,7 +624,7 @@ ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["elektrond", "-conf=/data/bitcoin.conf", "-datadir=/data", "-printtoconsole"]
 DOCKERFILE_EOF
 
-log "Schreibe elektron-net/docker-entrypoint.sh ..."
+log "Writing elektron-net/docker-entrypoint.sh ..."
 cat > elektron-net/docker-entrypoint.sh <<'ENTRYPOINT_EOF'
 #!/bin/sh
 set -e
@@ -639,14 +641,14 @@ ENTRYPOINT_EOF
 chmod +x elektron-net/docker-entrypoint.sh
 
 # ============================================================================
-# 3. rpcauth generieren
+# 3. Generate rpcauth
 # ============================================================================
 if [ "$REUSE_RPC_AUTH" = true ]; then
-  log "RPC-Zugangsdaten aus vorherigem Lauf gefunden -- wiederverwenden (Node-Passwort bleibt gleich)."
+  log "Found RPC credentials from a previous run -- reusing them (node password stays the same)."
   RPC_AUTH_LINE="$EXISTING_RPC_AUTH_LINE"
   RPC_PASSWORD="$EXISTING_RPC_PASSWORD"
 else
-  log "Generiere RPC-Zugangsdaten (rpcauth.py) ..."
+  log "Generating RPC credentials (rpcauth.py) ..."
   RPCAUTH_JSON="$(python3 elektron-net/share/rpcauth/rpcauth.py "$RPC_USER" -j)"
   RPC_AUTH_LINE="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['rpcauth'])" "$RPCAUTH_JSON")"
   RPC_PASSWORD="$(python3 -c "import json,sys; d=json.loads(sys.argv[1]); print(d['password'])" "$RPCAUTH_JSON")"
@@ -655,7 +657,7 @@ fi
 # ============================================================================
 # 4. elektron-net/bitcoin.conf
 # ============================================================================
-log "Schreibe elektron-net/bitcoin.conf ..."
+log "Writing elektron-net/bitcoin.conf ..."
 cat > elektron-net/bitcoin.conf <<CONF_EOF
 server=1
 listen=1
@@ -809,27 +811,27 @@ services:
       timeout: 5s
       retries: 20
 
-  # Electrum-Server für die Adress-Suche des Mempool-Explorers UND für
-  # externe Electrum-Wallet-Clients (z.B. Elektron Electrum). Gleiches
-  # Profil wie die mempool-Services: existiert genau dann, wenn der Explorer
-  # installiert ist. Alle Einstellungen (inkl. RPC-Zugangsdaten, Elektron-
-  # P2P-Magic e1ec7a6e und Node-P2P-Adresse für den Block-Download) kommen
-  # aus der generierten elektron-net-electrs/electrs.toml -- electrs nimmt
-  # Zugangsdaten grundsätzlich NICHT per Env-Var oder CLI an.
+  # Electrum server for the Mempool Explorer's address lookups AND for
+  # external Electrum wallet clients (e.g. Elektron Electrum). Same
+  # profile as the mempool services: exists exactly when the explorer is
+  # installed. All settings (including RPC credentials, the Elektron P2P
+  # magic e1ec7a6e and the node's P2P address for block download) come
+  # from the generated elektron-net-electrs/electrs.toml -- electrs
+  # fundamentally does NOT accept credentials via env var or CLI.
   #
-  # ports: publiziert electrs' einzigen Electrum-RPC-Listener (intern
-  # "0.0.0.0:50001", siehe electrs.toml) zweimal vom Host aus -- als
-  # konventionelles "t" (50001, plain TCP) UND als "s" (50002), beide auf
-  # denselben Container-Port gemappt. WICHTIG: electrs kann selbst kein TLS
-  # terminieren (kein Zertifikats-Handling im Upstream-Code), und dieser
-  # Stack hat aktuell KEINEN separaten TLS-Terminator davor -- 50002 ist
-  # also trotz der "s"-Konvention ebenfalls reines Plain-TCP, kein echtes
-  # SSL. Wallets, die auf dem "s"-Port zwingend einen TLS-Handshake
-  # erwarten, schlagen dort fehl; die verlassen sich am besten auf 50001
-  # ("t") bzw. eine "kein SSL"-Einstellung für den Server-Eintrag. Ohne
-  # dieses Mapping wäre electrs nur über das interne "backend"-Docker-Netzwerk
-  # erreichbar, nicht von außen -- das war der Grund für die anfänglich
-  # fehlschlagende Wallet-Verbindung zu electrs.elektron-net.org:50002.
+  # ports: publishes electrs' single Electrum RPC listener (internally
+  # "0.0.0.0:50001", see electrs.toml) twice from the host -- as the
+  # conventional "t" (50001, plain TCP) AND as "s" (50002), both mapped to
+  # the same container port. IMPORTANT: electrs itself cannot terminate
+  # TLS (no certificate handling in the upstream code), and this stack
+  # currently has NO separate TLS terminator in front of it -- so 50002,
+  # despite the "s" convention, is also plain TCP, no real SSL. Wallets
+  # that strictly require a TLS handshake on the "s" port will fail
+  # there; they're best off relying on 50001 ("t") or a "no SSL" setting
+  # for the server entry. Without this mapping, electrs would only be
+  # reachable over the internal "backend" Docker network, not from the
+  # outside -- that was the reason for the initially failing wallet
+  # connection to electrs.elektron-net.org:50002.
   elektron-electrs:
     container_name: elektron-electrs
     profiles:
@@ -845,8 +847,8 @@ services:
     ports:
       - "50001:50001"
       - "50002:50001"
-    # das Image definiert kein CMD/ENTRYPOINT; Konfiguration wird automatisch
-    # aus /etc/electrs/config.toml gelesen (Standard-Suchpfad von electrs)
+    # the image defines no CMD/ENTRYPOINT; config is read automatically
+    # from /etc/electrs/config.toml (electrs' standard search path)
     command: ["electrs"]
     volumes:
       - "./elektron-net-electrs/electrs.toml:/etc/electrs/config.toml:ro"
@@ -914,15 +916,15 @@ volumes:
   caddy_config:
 COMPOSE_EOF
 
-# Seeder-Ports an die konkrete Server-IP binden statt an die Wildcard-Adresse
-# -- vermeidet eine Kollision mit systemd-resolved (lauscht typischerweise
-# nur auf 127.0.0.53/54:53, nicht auf der öffentlichen IP).
+# Bind the seeder ports to the specific server IP instead of the wildcard
+# address -- avoids a collision with systemd-resolved (which typically only
+# listens on 127.0.0.53/54:53, not the public IP).
 sed -i "s/<SERVER_IP>/${SERVER_IP}/g; s/<SERVER_IPV6>/${SERVER_IPV6}/g" docker-compose.yml
 
 # ============================================================================
 # 6. Caddyfile
 # ============================================================================
-log "Schreibe caddy/Caddyfile ..."
+log "Writing caddy/Caddyfile ..."
 {
   if [ -n "$CADDY_EMAIL" ]; then
     echo "{"
@@ -930,7 +932,7 @@ log "Schreibe caddy/Caddyfile ..."
     echo "}"
     echo
   fi
-  echo "# ${NODE_DOMAIN} bekommt bewusst keinen Block -- reiner P2P-Seed (Port 8333)."
+  echo "# ${NODE_DOMAIN} deliberately gets no block -- plain P2P seed (port 8333)."
   if [ "$INSTALL_POOL" = "true" ]; then
     echo
     echo "${POOL_DOMAIN} {"
@@ -952,10 +954,10 @@ log "Schreibe caddy/Caddyfile ..."
 } > caddy/Caddyfile
 
 # ============================================================================
-# 7. elektron-net-ppool/.env -- nur falls INSTALL_POOL=true
+# 7. elektron-net-ppool/.env -- only if INSTALL_POOL=true
 # ============================================================================
 if [ "$INSTALL_POOL" = "true" ]; then
-log "Schreibe elektron-net-ppool/.env ..."
+log "Writing elektron-net-ppool/.env ..."
 cat > elektron-net-ppool/.env <<ENV_EOF
 ELEKTRON_RPC_URL=http://elektron-net
 ELEKTRON_RPC_USER=${RPC_USER}
@@ -978,7 +980,7 @@ HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
 HOBBY_MINER_DIFFICULTY=0.001
 DIAGNOSTIC_SHARE_LOGGING_MODES=
 
-# Optional -- leer lassen deaktiviert die jeweilige Integration.
+# Optional -- leave blank to disable the respective integration.
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 TELEGRAM_BOT_USERNAME=${TELEGRAM_BOT_USERNAME}
 DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
@@ -986,7 +988,7 @@ DISCORD_BOT_CLIENTID=${DISCORD_BOT_CLIENTID}
 DISCORD_BOT_GUILD_ID=${DISCORD_BOT_GUILD_ID}
 DISCORD_BOT_CHANNEL_ID=${DISCORD_BOT_CHANNEL_ID}
 
-# wird nach der Wallet-Erstellung automatisch von diesem Skript eingetragen:
+# filled in automatically by this script after wallet creation:
 POOL_WALLET_ADDRESS=
 
 PPLNS_WINDOW_MINUTES=${PPLNS_WINDOW_MINUTES}
@@ -998,9 +1000,9 @@ PAYOUT_DRY_RUN=${PAYOUT_DRY_RUN}
 
 WALLET_RPC_WALLET_NAME=${POOL_WALLET_NAME}
 
-# Pool-Wallet ist verschlüsselt (siehe README "vor echten Auszahlungen
-# empfohlen") -- ppool entsperrt sie hiermit automatisch für jede
-# Auszahlung und sperrt sie danach sofort wieder (wallet-rpc.service.ts).
+# The pool wallet is encrypted (see README, "recommended before real
+# payouts") -- ppool unlocks it automatically for every payout using
+# this and locks it again immediately afterward (wallet-rpc.service.ts).
 WALLET_PASSPHRASE=${POOL_WALLET_PASSPHRASE}
 WALLET_UNLOCK_SECONDS=${WALLET_UNLOCK_SECONDS}
 
@@ -1009,10 +1011,10 @@ ENV_EOF
 fi
 
 # ============================================================================
-# 8. elektron-net-faucet/.env -- nur falls INSTALL_FAUCET=true
+# 8. elektron-net-faucet/.env -- only if INSTALL_FAUCET=true
 # ============================================================================
 if [ "$INSTALL_FAUCET" = "true" ]; then
-log "Schreibe elektron-net-faucet/.env ..."
+log "Writing elektron-net-faucet/.env ..."
 cat > elektron-net-faucet/.env <<ENV_EOF
 FAUCET_PORT=8080
 
@@ -1045,7 +1047,7 @@ FAUCET_DAILY_BUDGET=${FAUCET_DAILY_BUDGET}
 FAUCET_HOURLY_BUDGET=${FAUCET_HOURLY_BUDGET}
 FAUCET_PER_ADDR_COOLDOWN_H=${FAUCET_PER_ADDR_COOLDOWN_H}
 FAUCET_PER_IP_COOLDOWN_H=${FAUCET_PER_IP_COOLDOWN_H}
-# wird nach der Wallet-Erstellung automatisch von diesem Skript eingetragen:
+# filled in automatically by this script after wallet creation:
 FAUCET_SENDER_ADDR=
 FAUCET_EXPLORER_URL=${FAUCET_EXPLORER_URL}
 FAUCET_DEFAULT_LANG=${FAUCET_DEFAULT_LANG}
@@ -1053,10 +1055,10 @@ ENV_EOF
 fi
 
 # ============================================================================
-# 8b. elektron-net-seeder/.env -- nur falls INSTALL_SEEDER=true
+# 8b. elektron-net-seeder/.env -- only if INSTALL_SEEDER=true
 # ============================================================================
 if [ "$INSTALL_SEEDER" = "true" ]; then
-  log "Schreibe elektron-net-seeder/.env ..."
+  log "Writing elektron-net-seeder/.env ..."
   cat > elektron-net-seeder/.env <<ENV_EOF
 SEEDER_HOST=${SEEDER_HOST}
 SEEDER_NS=${SEEDER_NS}
@@ -1080,7 +1082,7 @@ ENV_EOF
 fi
 
 # ============================================================================
-# 8c. elektron-net-mempool/.env -- nur falls INSTALL_MEMPOOL=true
+# 8c. elektron-net-mempool/.env -- only if INSTALL_MEMPOOL=true
 # ============================================================================
 # One shared .env for all three mempool containers (db/api/web) -- each key
 # is named for whichever consumer actually reads it (MYSQL_* for the stock
@@ -1088,7 +1090,7 @@ fi
 # frontend's entrypoint.sh), so a single env_file: per service is enough --
 # no docker-compose.yml-level ${VAR} substitution needed for this service.
 if [ "$INSTALL_MEMPOOL" = "true" ]; then
-  log "Schreibe elektron-net-mempool/.env ..."
+  log "Writing elektron-net-mempool/.env ..."
   cat > elektron-net-mempool/.env <<ENV_EOF
 # --- Node RPC (shared with ppool/faucet) ---
 CORE_RPC_HOST=elektron-net
@@ -1098,8 +1100,8 @@ CORE_RPC_PASSWORD=${RPC_PASSWORD}
 
 # --- Backend ---
 MEMPOOL_NETWORK=mainnet
-# "electrum" = Adress-Suche über den mitinstallierten elektron-electrs
-# (gleiches Compose-Profil "mempool", siehe docker-compose.yml).
+# "electrum" = address lookups via the co-installed elektron-electrs
+# (same Compose profile "mempool", see docker-compose.yml).
 MEMPOOL_BACKEND=electrum
 ELECTRUM_HOST=elektron-electrs
 ELECTRUM_PORT=50001
@@ -1130,11 +1132,11 @@ BACKEND_MAINNET_HTTP_HOST=elektron-mempool-api
 BACKEND_MAINNET_HTTP_PORT=8999
 MEMPOOL_WEBSITE_URL=https://${MEMPOOL_DOMAIN}
 HISTORICAL_PRICE=false
-# Menü-Icon ("Acceleration"-Dashboard) und der Boost-Button auf der TX-Seite
-# sind zwei getrennte Frontend-Flags (siehe
-# elektron-net-mempool/frontend/mempool-frontend-config.sample.json) -- hier
-# an denselben Schalter gekoppelt. Beide rufen nur ausgehend SERVICES_API
-# (mempool.space) per HTTPS auf, keine neue Portfreigabe nötig.
+# The menu icon ("Acceleration" dashboard) and the boost button on the TX
+# page are two separate frontend flags (see
+# elektron-net-mempool/frontend/mempool-frontend-config.sample.json) --
+# coupled to the same toggle here. Both only make outbound HTTPS calls to
+# SERVICES_API (mempool.space), no new port needed.
 ACCELERATOR=${MEMPOOL_ACCELERATOR}
 ACCELERATOR_BUTTON=${MEMPOOL_ACCELERATOR}
 SERVICES_API=
@@ -1142,38 +1144,38 @@ ENV_EOF
 fi
 
 # ============================================================================
-# 8d. elektron-net-electrs/electrs.toml -- nur falls INSTALL_MEMPOOL=true
+# 8d. elektron-net-electrs/electrs.toml -- only if INSTALL_MEMPOOL=true
 # ============================================================================
-# electrs akzeptiert RPC-Zugangsdaten AUSSCHLIESSLICH aus einer Config-Datei
-# (bewusster Leak-Schutz upstream: weder CLI-Argument noch Env-Var möglich),
-# daher wird hier alles in eine generierte Datei geschrieben, die per
-# docker-compose.yml nach /etc/electrs/config.toml gemountet wird.
+# electrs accepts RPC credentials EXCLUSIVELY from a config file (a
+# deliberate anti-leak measure upstream: neither a CLI argument nor an env
+# var is possible), so everything here gets written into a generated file
+# that's mounted to /etc/electrs/config.toml via docker-compose.yml.
 if [ "$INSTALL_MEMPOOL" = "true" ]; then
-  log "Schreibe elektron-net-electrs/electrs.toml ..."
+  log "Writing elektron-net-electrs/electrs.toml ..."
   cat > elektron-net-electrs/electrs.toml <<ELECTRS_EOF
-# Generiert von install-elektron-stack.sh -- Änderungen hier werden beim
-# nächsten Installer-Lauf überschrieben.
+# Generated by install-elektron-stack.sh -- changes here get overwritten
+# on the next installer run.
 
-# Node-RPC (gleiche Zugangsdaten wie ppool/faucet/mempool)
+# Node RPC (same credentials as ppool/faucet/mempool)
 auth = "${RPC_USER}:${RPC_PASSWORD}"
 
-# Node-Endpunkte im backend-Netz: RPC für Mempool/Broadcast,
-# P2P für den Block-Download.
+# Node endpoints on the backend network: RPC for mempool/broadcast,
+# P2P for block download.
 daemon_rpc_addr = "elektron-net:8332"
 daemon_p2p_addr = "elektron-net:8333"
 
-# Elektron Net Mainnet-Magic (chainparams.cpp) -- ohne sie verwirft der Node
-# jede P2P-Nachricht von electrs. Die Option behält ihren Upstream-Namen,
-# gilt in unserem Fork aber für jedes Netzwerk.
+# Elektron Net mainnet magic (chainparams.cpp) -- without it the node
+# rejects every P2P message from electrs. The option keeps its upstream
+# name, but in our fork applies to every network.
 signet_magic = "e1ec7a6e"
 
-# Electrum-RPC -- ein einzelner Listener (electrs unterstützt kein Multi-
-# Bind), intern für elektron-mempool-api (ELECTRUM_HOST/ELECTRUM_PORT) UND
-# extern für Wallet-Clients über den docker-compose.yml-Port-Mapping-Trick
-# (50001 UND 50002 -> dieser eine Port) genutzt, siehe Kommentar dort.
+# Electrum RPC -- a single listener (electrs doesn't support multi-bind),
+# used internally by elektron-mempool-api (ELECTRUM_HOST/ELECTRUM_PORT)
+# AND externally for wallet clients via the docker-compose.yml port-mapping
+# trick (50001 AND 50002 -> this one port), see the comment there.
 electrum_rpc_addr = "0.0.0.0:50001"
 
-# Index-Datenbank, persistiert über ./data/electrs
+# Index database, persisted via ./data/electrs
 db_dir = "/data"
 
 log_filters = "INFO"
@@ -1181,16 +1183,16 @@ ELECTRS_EOF
   chmod 600 elektron-net-electrs/electrs.toml
 fi
 
-# Docker Compose braucht eine .env im Projekt-Root, um ${FAUCET_DB_*} in
-# docker-compose.yml aufzulösen -- Symlink hält beide Dateien synchron. Nur
-# nötig, wenn der Faucet auch installiert ist (bzw. war -- die Datei bleibt
-# beim Deinstallieren erhalten, siehe "Faucet deaktivieren" weiter unten).
+# Docker Compose needs a .env in the project root to resolve ${FAUCET_DB_*}
+# in docker-compose.yml -- the symlink keeps both files in sync. Only
+# needed if the faucet is also installed (or was -- the file is kept when
+# uninstalling, see "Disabling the faucet" further below).
 [ "$INSTALL_FAUCET" = "true" ] && ln -sf elektron-net-faucet/.env .env
 
 # ============================================================================
-# 9. Node zuerst hochfahren
+# 9. Start the node first
 # ============================================================================
-log "Baue und starte elektron-net ..."
+log "Building and starting elektron-net ..."
 docker compose up -d --build elektron-net
 
 # `docker compose exec` runs as root by default (the Dockerfile has no
@@ -1208,20 +1210,20 @@ wait_for_rpc() {
   local retries=60 i=0
   until node_cli getblockchaininfo >/dev/null 2>&1; do
     i=$((i + 1))
-    [ "$i" -ge "$retries" ] && die "Timeout: elektron-net RPC antwortet nach 5 Minuten nicht."
+    [ "$i" -ge "$retries" ] && die "Timeout: elektron-net RPC hasn't responded after 5 minutes."
     sleep 5
   done
 }
 
-log "Warte auf RPC-Bereitschaft von elektron-net ..."
+log "Waiting for elektron-net's RPC to become ready ..."
 wait_for_rpc
 
 # ============================================================================
-# 10. Wallets anlegen -- je nachdem, ob Pool/Faucet installiert sind
+# 10. Create wallets -- depending on whether Pool/Faucet are installed
 # ============================================================================
-# POOL_ADDR/FAUCET_ADDR bleiben leer, falls die jeweilige Komponente nicht
-# installiert ist -- unter "set -u" muss das explizit vorbelegt sein, statt
-# sich darauf zu verlassen, dass der Block weiter unten sie schon setzt.
+# POOL_ADDR/FAUCET_ADDR stay blank if the respective component isn't
+# installed -- under "set -u" this needs to be explicitly pre-set instead
+# of relying on the block further below to set it.
 POOL_ADDR=""
 FAUCET_ADDR=""
 
@@ -1232,43 +1234,42 @@ wallet_loaded() {
 create_wallet_if_missing() {
   local wname="$1"
   if wallet_loaded "$wname"; then
-    log "Wallet '$wname' ist bereits vorhanden/geladen, überspringe Erstellung."
+    log "Wallet '$wname' already exists/is loaded, skipping creation."
   else
-    log "Erstelle Wallet '$wname' ..."
+    log "Creating wallet '$wname' ..."
     node_cli createwallet "$wname" >/dev/null \
       || node_cli loadwallet "$wname" >/dev/null
   fi
 }
 
 if [ "$INSTALL_POOL" = "true" ]; then
-  log "Lege Pool-Wallet an ..."
+  log "Setting up the pool wallet ..."
   create_wallet_if_missing "$POOL_WALLET_NAME"
   if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
     POOL_ADDR="$EXISTING_POOL_WALLET_ADDRESS"
-    log "Pool-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${POOL_ADDR}"
+    log "Reused pool wallet address from a previous run: ${POOL_ADDR}"
   else
     POOL_ADDR="$(node_cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
-    log "Neue Pool-Wallet-Adresse: ${POOL_ADDR}"
+    log "New pool wallet address: ${POOL_ADDR}"
   fi
   sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
 fi
 
-# Verschlüsseln, falls noch nicht verschlüsselt -- empfohlen bevor echte
-# Auszahlungen laufen (siehe ppool-.env-Kommentar zu WALLET_PASSPHRASE):
-# ohne das schlägt jede echte Auszahlung mit RPC-Fehler -13 fehl, sobald
-# PAYOUT_DRY_RUN=false gesetzt wird. ppool entsperrt die Wallet dafür
-# automatisch für WALLET_UNLOCK_SECONDS vor jedem sendmany und sperrt sie
-# danach sofort wieder (encryptwallet stoppt den Node-Prozess kurz -- das
-# ist normales Bitcoin-Core-Verhalten, der Container kommt dank
-# restart:unless-stopped von selbst wieder hoch).
+# Encrypt if not already encrypted -- recommended before real payouts run
+# (see the ppool .env comment on WALLET_PASSPHRASE): without this, any real
+# payout fails with RPC error -13 as soon as PAYOUT_DRY_RUN=false is set.
+# ppool unlocks the wallet automatically for WALLET_UNLOCK_SECONDS before
+# every sendmany and locks it again immediately afterward (encryptwallet
+# briefly stops the node process -- that's normal Bitcoin Core behavior,
+# the container comes back up on its own thanks to restart:unless-stopped).
 encrypt_wallet_if_missing() {
   local wname="$1" passphrase="$2"
   local info
   info="$(node_cli -rpcwallet="$wname" getwalletinfo)"
   if echo "$info" | grep -q '"unlocked_until"'; then
-    log "Wallet '$wname' ist bereits verschlüsselt, überspringe encryptwallet."
+    log "Wallet '$wname' is already encrypted, skipping encryptwallet."
   else
-    log "Verschlüssele Wallet '$wname' (Node startet dabei kurz neu) ..."
+    log "Encrypting wallet '$wname' (node restarts briefly) ..."
     node_cli -rpcwallet="$wname" encryptwallet "$passphrase" || true
     sleep 8
     wait_for_rpc
@@ -1279,43 +1280,42 @@ encrypt_wallet_if_missing() {
 [ "$INSTALL_POOL" = "true" ] && encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
 
 if [ "$INSTALL_FAUCET" = "true" ]; then
-  log "Lege Faucet-Wallet an ..."
+  log "Setting up the faucet wallet ..."
   create_wallet_if_missing "$FAUCET_WALLET_NAME"
   encrypt_wallet_if_missing "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE"
 
   if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
     FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
-    log "Faucet-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${FAUCET_ADDR}"
+    log "Reused faucet wallet address from a previous run: ${FAUCET_ADDR}"
   else
     FAUCET_ADDR="$(node_cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
-    log "Neue Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
+    log "New faucet wallet address: ${FAUCET_ADDR}"
   fi
   sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
 fi
 
 # ============================================================================
-# 10a. Wallet-Backups -- vollständiger Private-Key-Export (einmalig)
+# 10a. Wallet backups -- full private-key export (once)
 # ============================================================================
-# "Komplettes Backup" heißt hier: nicht nur die Passphrase (siehe oben),
-# sondern die tatsächlichen privaten Schlüssel der Pool-/Faucet-Wallet.
-# dumpwallet funktioniert nur bei Legacy-Wallets; ist die hier von
-# createwallet angelegte Wallet eine Descriptor-Wallet, schlägt es fehl und
-# wir weichen auf "listdescriptors true" aus (liefert dieselben privaten
-# Schlüssel als Descriptor-Strings). Läuft nur EINMAL -- existiert die
-# Backup-Datei schon, wird nichts erneut geschrieben/überschrieben.
+# "Complete backup" here means not just the passphrase (see above), but
+# the actual private keys of the pool/faucet wallet. dumpwallet only works
+# for legacy wallets; if the wallet created here by createwallet is a
+# descriptor wallet, it fails and we fall back to "listdescriptors true"
+# (returns the same private keys as descriptor strings). Runs only ONCE --
+# if the backup file already exists, nothing gets written/overwritten again.
 backup_wallet_privkeys() {
   local wname="$1" host_path="$2" container_path="$3"
   if [ -f "$host_path" ]; then
-    log "Wallet-Backup für '$wname' existiert bereits, überspringe: ${host_path}"
+    log "Wallet backup for '$wname' already exists, skipping: ${host_path}"
     return
   fi
-  log "Exportiere private Schlüssel der Wallet '$wname' (vollständiges Backup) ..."
+  log "Exporting private keys of wallet '$wname' (complete backup) ..."
   if node_cli -rpcwallet="$wname" dumpwallet "$container_path" >/dev/null 2>&1; then
-    log "Wallet-Backup (dumpwallet, Legacy-Format) gespeichert: ${host_path}"
+    log "Wallet backup (dumpwallet, legacy format) saved: ${host_path}"
   elif node_cli -rpcwallet="$wname" listdescriptors true > "$host_path" 2>/dev/null; then
-    log "Wallet-Backup (private Descriptors) gespeichert: ${host_path}"
+    log "Wallet backup (private descriptors) saved: ${host_path}"
   else
-    warn "Konnte kein automatisches Wallet-Backup für '$wname' erstellen -- bitte manuell prüfen: docker compose exec elektron-net elektron-cli -rpcuser=$RPC_USER -rpcpassword=<siehe ZUGANGSDATEN.txt> -rpcwallet=$wname listdescriptors true"
+    warn "Could not create an automatic wallet backup for '$wname' -- please check manually: docker compose exec elektron-net elektron-cli -rpcuser=$RPC_USER -rpcpassword=<see CREDENTIALS.txt> -rpcwallet=$wname listdescriptors true"
     rm -f "$host_path"
     return
   fi
@@ -1325,17 +1325,17 @@ backup_wallet_privkeys() {
 POOL_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/pool-wallet-privkeys-backup.txt"
 FAUCET_WALLET_DUMP_HOST="${STACK_DIR}/data/elektron-net/faucet-wallet-privkeys-backup.txt"
 
-# Beide Wallets sind mittlerweile verschlüsselt (siehe 10.) -- also für
-# beide erst kurz entsperren, exportieren, danach sofort wieder sperren.
+# Both wallets are encrypted by now (see 10.) -- so briefly unlock each one,
+# export, then lock it again immediately afterward.
 export_wallet_backup() {
   local wname="$1" passphrase="$2" host_path="$3" container_path="$4"
   if [ -f "$host_path" ]; then
-    log "Wallet-Backup für '$wname' existiert bereits, überspringe: ${host_path}"
+    log "Wallet backup for '$wname' already exists, skipping: ${host_path}"
     return
   fi
-  log "Entsperre Wallet '$wname' kurz für den Private-Key-Export ..."
+  log "Briefly unlocking wallet '$wname' for the private-key export ..."
   node_cli -rpcwallet="$wname" walletpassphrase "$passphrase" 60 >/dev/null 2>&1 \
-    || warn "Konnte Wallet '$wname' nicht entsperren -- Private-Key-Export wird wahrscheinlich fehlschlagen, Passphrase prüfen."
+    || warn "Could not unlock wallet '$wname' -- the private-key export will likely fail, check the passphrase."
   backup_wallet_privkeys "$wname" "$host_path" "$container_path"
   node_cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
 }
@@ -1344,12 +1344,12 @@ export_wallet_backup() {
 [ "$INSTALL_FAUCET" = "true" ] && export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
 
 # ============================================================================
-# 10c. Pool deaktivieren, falls INSTALL_POOL (wieder) auf false steht
+# 10c. Disable the pool, if INSTALL_POOL is (again) set to false
 # ============================================================================
 if [ "$INSTALL_POOL" != "true" ]; then
   for svc in elektron-ppool-ui elektron-ppool; do
     if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
-      log "INSTALL_POOL=false -- stoppe und entferne ${svc} (Daten in data/ppool-DB/ bleiben erhalten) ..."
+      log "INSTALL_POOL=false -- stopping and removing ${svc} (data in data/ppool-DB/ is kept) ..."
       docker compose stop "$svc" 2>/dev/null || true
       docker compose rm -f "$svc" 2>/dev/null || true
     fi
@@ -1357,12 +1357,12 @@ if [ "$INSTALL_POOL" != "true" ]; then
 fi
 
 # ============================================================================
-# 10d. Faucet deaktivieren, falls INSTALL_FAUCET (wieder) auf false steht
+# 10d. Disable the faucet, if INSTALL_FAUCET is (again) set to false
 # ============================================================================
 if [ "$INSTALL_FAUCET" != "true" ]; then
   for svc in elektron-faucet-app elektron-faucet-db; do
     if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
-      log "INSTALL_FAUCET=false -- stoppe und entferne ${svc} (Daten in data/faucet-db/ und data/faucet-config/ bleiben erhalten) ..."
+      log "INSTALL_FAUCET=false -- stopping and removing ${svc} (data in data/faucet-db/ and data/faucet-config/ is kept) ..."
       docker compose stop "$svc" 2>/dev/null || true
       docker compose rm -f "$svc" 2>/dev/null || true
     fi
@@ -1370,29 +1370,29 @@ if [ "$INSTALL_FAUCET" != "true" ]; then
 fi
 
 # ============================================================================
-# 10e. Seeder deaktivieren, falls INSTALL_SEEDER (wieder) auf false steht
+# 10e. Disable the seeder, if INSTALL_SEEDER is (again) set to false
 # ============================================================================
-# Ein deaktiviertes Compose-Profil stoppt von sich aus keinen bereits
-# laufenden Container -- ohne dieses Teardown wäre INSTALL_SEEDER=false
-# also kein echtes Deinstallieren.
+# A deactivated Compose profile doesn't by itself stop an already-running
+# container -- without this teardown, INSTALL_SEEDER=false wouldn't
+# actually uninstall anything.
 if [ "$INSTALL_SEEDER" != "true" ]; then
   if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "elektron-net-seeder"; then
-    log "INSTALL_SEEDER=false -- stoppe und entferne den Seeder-Container (Daten in data/elektron-net-seeder/ bleiben erhalten) ..."
+    log "INSTALL_SEEDER=false -- stopping and removing the seeder container (data in data/elektron-net-seeder/ is kept) ..."
     docker compose stop elektron-net-seeder 2>/dev/null || true
     docker compose rm -f elektron-net-seeder 2>/dev/null || true
   fi
 fi
 
 # ============================================================================
-# 10f. Mempool-Explorer deaktivieren, falls INSTALL_MEMPOOL (wieder) auf false steht
+# 10f. Disable the Mempool Explorer, if INSTALL_MEMPOOL is (again) set to false
 # ============================================================================
 if [ "$INSTALL_MEMPOOL" != "true" ]; then
-  # elektron-electrs gehört zum Explorer (gleiches Profil) und wird mit
-  # entfernt; sein Index in data/electrs/ bleibt -- wie die Mempool-DB --
-  # für eine spätere Reaktivierung erhalten.
+  # elektron-electrs belongs to the explorer (same profile) and gets removed
+  # along with it; its index in data/electrs/ is kept -- like the mempool
+  # DB -- for a later re-activation.
   for svc in elektron-mempool-web elektron-mempool-api elektron-mempool-db elektron-electrs; do
     if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
-      log "INSTALL_MEMPOOL=false -- stoppe und entferne ${svc} (Daten in data/mempool-db/, data/mempool-cache/ und data/electrs/ bleiben erhalten) ..."
+      log "INSTALL_MEMPOOL=false -- stopping and removing ${svc} (data in data/mempool-db/, data/mempool-cache/ and data/electrs/ is kept) ..."
       docker compose stop "$svc" 2>/dev/null || true
       docker compose rm -f "$svc" 2>/dev/null || true
     fi
@@ -1400,7 +1400,7 @@ if [ "$INSTALL_MEMPOOL" != "true" ]; then
 fi
 
 # ============================================================================
-# 11. Rest des Stacks hochfahren
+# 11. Start the rest of the stack
 # ============================================================================
 COMPOSE_PROFILE_ARGS=""
 BASE_SERVICES_LABEL="caddy"
@@ -1421,109 +1421,108 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile mempool"
   EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
-log "Baue und starte den restlichen Stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
+log "Building and starting the rest of the stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
 # ============================================================================
-# 11b. Docker-Build-Cache aufräumen
+# 11b. Clean up the Docker build cache
 # ============================================================================
-# Jeder Rebuild häuft Build-Cache an, der danach nicht mehr gebraucht wird --
-# die fertigen Images bleiben davon unberührt. Nur Einträge löschen, die
-# seit 24h nicht mehr benutzt wurden, damit ein Rebuild kurz danach nicht
-# wieder bei Null anfängt.
-log "Räume alten Docker-Build-Cache auf (>24h ungenutzt) ..."
+# Every rebuild accumulates build cache that's no longer needed afterward --
+# the finished images stay unaffected by this. Only delete entries unused
+# for the past 24h, so a rebuild shortly afterward doesn't start from
+# scratch again.
+log "Cleaning up old Docker build cache (unused for >24h) ..."
 docker builder prune -f --filter "until=24h" >/dev/null || true
 
 # ============================================================================
 # 12. Firewall
 # ============================================================================
-# Hinweis: MEMPOOL_ACCELERATOR braucht KEINE zusätzliche Portfreigabe --
-# Menü und Boost-Button rufen nur ausgehend mempool.space's öffentliche
-# Services-API (SERVICES_API) per HTTPS auf, kein neuer eingehender Port.
+# Note: MEMPOOL_ACCELERATOR needs NO additional port -- the menu and boost
+# button only make outbound calls to mempool.space's public services API
+# (SERVICES_API) over HTTPS, no new inbound port.
 if command -v ufw >/dev/null 2>&1; then
   if [ "$FIREWALL_AUTO_CONFIGURE" = "true" ]; then
-    log "Konfiguriere ufw (IPv4 + IPv6) ..."
-    # Ubuntu default: /etc/default/ufw hat IPV6=yes -- ufw legt dann für
-    # jede Regel automatisch auch die passende ip6tables-Regel an.
+    log "Configuring ufw (IPv4 + IPv6) ..."
+    # Ubuntu default: /etc/default/ufw has IPV6=yes -- ufw then automatically
+    # adds the matching ip6tables rule for every rule too.
     if grep -q '^IPV6=no' /etc/default/ufw 2>/dev/null; then
-      warn "IPv6 war in /etc/default/ufw deaktiviert -- aktiviere es."
+      warn "IPv6 was disabled in /etc/default/ufw -- enabling it."
       sed -i 's/^IPV6=no/IPV6=yes/' /etc/default/ufw
     fi
     ufw allow 8333/tcp comment 'Elektron P2P seed' || true
     if [ "$INSTALL_POOL" = "true" ]; then
       ufw allow 3333/tcp comment 'Elektron PPLNS Stratum' || true
     else
-      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
+      # Close it symmetrically again, in case it was open from a previous run.
       ufw delete allow 3333/tcp 2>/dev/null || true
     fi
     ufw allow 80/tcp  || true
     ufw allow 443/tcp || true
     if [ "$INSTALL_SEEDER" = "true" ]; then
       ufw allow 53/udp comment 'Elektron DNS seeder' || true
-      ufw allow 53/tcp comment 'Elektron DNS seeder (TCP-Fallback)' || true
+      ufw allow 53/tcp comment 'Elektron DNS seeder (TCP fallback)' || true
     else
-      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
+      # Close it symmetrically again, in case it was open from a previous run.
       ufw delete allow 53/udp 2>/dev/null || true
       ufw delete allow 53/tcp 2>/dev/null || true
     fi
     if [ "$INSTALL_MEMPOOL" = "true" ]; then
       ufw allow 50001/tcp comment 'Elektron electrs Electrum (t)' || true
-      ufw allow 50002/tcp comment 'Elektron electrs Electrum (s, plain TCP trotz Portname)' || true
+      ufw allow 50002/tcp comment 'Elektron electrs Electrum (s, plain TCP despite the port name)' || true
     else
-      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
+      # Close it symmetrically again, in case it was open from a previous run.
       ufw delete allow 50001/tcp 2>/dev/null || true
       ufw delete allow 50002/tcp 2>/dev/null || true
     fi
     ufw reload || true
   else
-    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp$( [ "$INSTALL_POOL" = "true" ] && echo ' 3333/tcp' ) 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
+    warn "FIREWALL_AUTO_CONFIGURE=false -- please open manually: ufw allow 8333/tcp$( [ "$INSTALL_POOL" = "true" ] && echo ' 3333/tcp' ) 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
   fi
 else
-  warn "ufw nicht gefunden -- Ports 8333, 80, 443$( [ "$INSTALL_POOL" = "true" ] && echo ', 3333' )$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manuell im Hetzner Cloud Firewall öffnen."
+  warn "ufw not found -- please open ports 8333, 80, 443$( [ "$INSTALL_POOL" = "true" ] && echo ', 3333' )$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manually in your provider's network firewall panel, if it has one."
 fi
 FIREWALL_PORT_COUNT=3
 [ "$INSTALL_POOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
 [ "$INSTALL_SEEDER" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
 [ "$INSTALL_MEMPOOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 2))
-warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben ${FIREWALL_PORT_COUNT} Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
+warn "If your provider has a separate network-level firewall panel (e.g. Hetzner Cloud Firewall, AWS Security Groups), also open the same ${FIREWALL_PORT_COUNT} ports there -- enable them separately for IPv4 AND IPv6, ufw alone isn't enough behind such a firewall."
 
 # ============================================================================
-# 13. Zusammenfassung -- wird angezeigt UND dauerhaft in eine Datei
-#     geschrieben (SUMMARY_FILE), damit du sie nicht bei diesem einen Lauf
-#     abschreiben musst.
+# 13. Summary -- shown on screen AND written permanently to a file
+#     (SUMMARY_FILE), so you don't have to copy it down during this one run.
 # ============================================================================
-SUMMARY_FILE="${STACK_DIR}/ZUGANGSDATEN.txt"
+SUMMARY_FILE="${STACK_DIR}/CREDENTIALS.txt"
 GENERATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 
-# Für den "encryptwallet ist ein Einwegvorgang"-Hinweis unten: Namen, Verb
-# und .env-Verweise je nachdem, welche der beiden Wallets tatsächlich
-# installiert sind -- als eigene Variablen vorberechnet statt verschachtelter
-# Command-Substitution direkt im Text, um Text-/Grammatikfehler zu vermeiden.
+# For the "encryptwallet is a one-way operation" note below: name, verb and
+# .env references depending on which of the two wallets are actually
+# installed -- precomputed as their own variables instead of nested command
+# substitution directly in the text, to avoid text/grammar mistakes.
 INSTALLED_WALLETS_LABEL=""
-INSTALLED_WALLETS_VERB="ist"
+INSTALLED_WALLETS_VERB="is"
 INSTALLED_WALLET_ENV_REFS=""
 if [ "$INSTALL_POOL" = "true" ]; then
-  INSTALLED_WALLETS_LABEL="die Pool-Wallet"
-  INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} und in ${STACK_DIR}/elektron-net-ppool/.env (Feld WALLET_PASSPHRASE)"
+  INSTALLED_WALLETS_LABEL="the pool wallet"
+  INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} and in ${STACK_DIR}/elektron-net-ppool/.env (field WALLET_PASSPHRASE)"
 fi
 if [ "$INSTALL_FAUCET" = "true" ]; then
   if [ -n "$INSTALLED_WALLETS_LABEL" ]; then
-    INSTALLED_WALLETS_LABEL="${INSTALLED_WALLETS_LABEL} UND die Faucet-Wallet"
-    INSTALLED_WALLETS_VERB="sind"
-    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} bzw. in ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS)"
+    INSTALLED_WALLETS_LABEL="${INSTALLED_WALLETS_LABEL} AND the faucet wallet"
+    INSTALLED_WALLETS_VERB="are"
+    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} and in ${STACK_DIR}/elektron-net-faucet/.env (field FAUCET_WALLET_PASS)"
   else
-    INSTALLED_WALLETS_LABEL="die Faucet-Wallet"
-    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} und in ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS)"
+    INSTALLED_WALLETS_LABEL="the faucet wallet"
+    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} and in ${STACK_DIR}/elektron-net-faucet/.env (field FAUCET_WALLET_PASS)"
   fi
 fi
 
-# Jede Wallet bleibt ihre eigene, separat schützbare Datei (chmod 600) --
-# hier wird für die Übersicht nur AUFGELISTET, was in external-wallets/
-# liegt (Dateiname + Pfad), der Private-Key-Inhalt selbst wird NICHT
-# zusätzlich in ZUGANGSDATEN.txt hineinkopiert. So gibt es pro Wallet genau
-# eine Stelle mit dem eigentlichen Geheimnis, statt es zu duplizieren.
+# Every wallet stays its own, separately protectable file (chmod 600) --
+# here, only what's in external-wallets/ gets LISTED for the overview
+# (filename + path), the private-key content itself does NOT additionally
+# get copied into CREDENTIALS.txt. So each wallet has exactly one place
+# holding the actual secret, instead of it being duplicated.
 EXTERNAL_WALLETS_DIR="${STACK_DIR}/external-wallets"
-EXTERNAL_WALLETS_BLOCK="(keine Dateien in ${EXTERNAL_WALLETS_DIR}/ gefunden)"
+EXTERNAL_WALLETS_BLOCK="(no files found in ${EXTERNAL_WALLETS_DIR}/)"
 if [ -d "$EXTERNAL_WALLETS_DIR" ] && [ -n "$(ls -A "$EXTERNAL_WALLETS_DIR" 2>/dev/null)" ]; then
   EXTERNAL_WALLETS_BLOCK=""
   for f in "$EXTERNAL_WALLETS_DIR"/*; do
@@ -1539,205 +1538,204 @@ fi
 cat <<SUMMARY
 
 ============================================================================
- ELEKTRON NET STACK -- ZUGANGSDATEN UND SERVER-INFOS
- Zuletzt aktualisiert: ${GENERATED_AT}  (bei jedem Lauf von install-elektron-stack.sh neu geschrieben)
+ ELEKTRON NET STACK -- CREDENTIALS AND SERVER INFO
+ Last updated: ${GENERATED_AT}  (rewritten on every run of install-elektron-stack.sh)
 ============================================================================
-# Diese Datei ist die zentrale ÜBERSICHT über ALLE Zugangsdaten dieses
-# Stacks: RPC-/DB-/JWT-/Faucet-Admin-Passwörter stehen direkt unten drin.
-# Wallet-Private-Keys dagegen bleiben bewusst in ihren jeweils EIGENEN
-# Dateien (Pool/Faucet-Backup, alles in ${EXTERNAL_WALLETS_DIR}/) -- hier
-# stehen nur deren Dateiname und Pfad als Verweis, damit jedes Wallet-
-# Geheimnis nur an einer einzigen Stelle liegt statt dupliziert zu werden.
+# This file is the central OVERVIEW of ALL credentials for this stack:
+# RPC/DB/JWT/faucet-admin passwords sit directly below. Wallet private
+# keys, on the other hand, deliberately stay in their own separate files
+# (pool/faucet backup, all under ${EXTERNAL_WALLETS_DIR}/) -- only their
+# filename and path are listed here as a reference, so each wallet secret
+# lives in exactly one place instead of being duplicated.
 #
-# Trotzdem: chmod 600 ist unten bereits automatisch gesetzt; nicht
-# kopieren/committen/per Klartext-Mail verschicken. Einmalig offline
-# sichern (z.B. per WinSCP/scp herunterladen, siehe README "Dateien auf den
-# Server bringen") -- am besten zusammen mit den referenzierten
-# Wallet-Dateien -- und danach auf dem Server unter Verschluss lassen.
+# Even so: chmod 600 is already set automatically below; don't
+# copy/commit it or send it by plaintext email. Back it up offline once
+# (e.g. download via WinSCP/scp, see README "Getting files onto the
+# server") -- ideally together with the referenced wallet files -- then
+# keep it locked down on the server.
 ============================================================================
 
- Node (P2P-Seed):     ${NODE_DOMAIN}:8333
+ Node (P2P seed):     ${NODE_DOMAIN}:8333
  Server IPv4:          ${SERVER_IP}
- Server IPv6 (erkannt/verwendet): ${SERVER_IPV6}
- Pool Dashboard (PPLNS-Mining-Pool, optional):$( [ "$INSTALL_POOL" = "true" ] && echo " aktiv -- https://${POOL_DOMAIN}" || echo " nicht installiert (INSTALL_POOL=true zum Aktivieren)" )
- Faucet (optional):$( [ "$INSTALL_FAUCET" = "true" ] && echo " aktiv -- https://${FAUCET_DOMAIN}" || echo " nicht installiert (INSTALL_FAUCET=true zum Aktivieren)" )
+ Server IPv6 (detected/used): ${SERVER_IPV6}
+ Pool dashboard (PPLNS mining pool, optional):$( [ "$INSTALL_POOL" = "true" ] && echo " active -- https://${POOL_DOMAIN}" || echo " not installed (INSTALL_POOL=true to enable)" )
+ Faucet (optional):$( [ "$INSTALL_FAUCET" = "true" ] && echo " active -- https://${FAUCET_DOMAIN}" || echo " not installed (INSTALL_FAUCET=true to enable)" )
 $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_ADMIN_SUMMARY
- Faucet Admin:          https://${FAUCET_DOMAIN}/admin.php
+ Faucet admin:          https://${FAUCET_DOMAIN}/admin.php
    User:     ${FAUCET_ADMIN_USER}
-   Passwort: ${FAUCET_ADMIN_PASS}
+   Password: ${FAUCET_ADMIN_PASS}
 FAUCET_ADMIN_SUMMARY
 )
 
- Seeder (DNS-Crawler, optional):$( [ "$INSTALL_SEEDER" = "true" ] && echo " aktiv -- ${SEEDER_HOST} (NS: ${SEEDER_NS})" || echo " nicht installiert (INSTALL_SEEDER=true zum Aktivieren)" )
+ Seeder (DNS crawler, optional):$( [ "$INSTALL_SEEDER" = "true" ] && echo " active -- ${SEEDER_HOST} (NS: ${SEEDER_NS})" || echo " not installed (INSTALL_SEEDER=true to enable)" )
 $( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_SUMMARY
-   Container: elektron-net-seeder, Port 53
-   Daten:     ${STACK_DIR}/data/elektron-net-seeder/
+   Container: elektron-net-seeder, port 53
+   Data:      ${STACK_DIR}/data/elektron-net-seeder/
 SEEDER_SUMMARY
 )
 
- Mempool Explorer (Block-Explorer, optional):$( [ "$INSTALL_MEMPOOL" = "true" ] && echo " aktiv -- https://${MEMPOOL_DOMAIN}" || echo " nicht installiert (INSTALL_MEMPOOL=true zum Aktivieren)" )
+ Mempool Explorer (block explorer, optional):$( [ "$INSTALL_MEMPOOL" = "true" ] && echo " active -- https://${MEMPOOL_DOMAIN}" || echo " not installed (INSTALL_MEMPOOL=true to enable)" )
 $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
-   Container: elektron-mempool-db, elektron-mempool-api, elektron-mempool-web,
-              elektron-electrs (Electrum-Server für die Adress-Suche)
-   Hinweis:   zeigt nur die letzten ~197.280 Blöcke (~137 Tage, verpflichtendes
-              Pruning). Adress-Suche läuft über elektron-electrs
-              (MEMPOOL_BACKEND=electrum); direkt nach der Installation braucht
-              dessen Index-Aufbau ein paar Minuten.
-   Electrum:  ${NODE_DOMAIN}:50001 (t, plain TCP) und :50002 (s -- ACHTUNG:
-              trotz Portname ebenfalls nur plain TCP, kein echtes SSL/TLS,
-              siehe docker-compose.yml-Kommentar bei elektron-electrs)
-   Accelerator: $( [ "$MEMPOOL_ACCELERATOR" = "true" ] && echo "aktiv -- Menü + Boost-Button, verlinkt auf mempool.space (keine eigene Portfreigabe nötig)" || echo "aus (MEMPOOL_ACCELERATOR=true zum Aktivieren)" )
+   Containers: elektron-mempool-db, elektron-mempool-api, elektron-mempool-web,
+               elektron-electrs (Electrum server for address lookups)
+   Note:       only shows the last ~197,280 blocks (~137 days, mandatory
+               pruning). Address lookups run via elektron-electrs
+               (MEMPOOL_BACKEND=electrum); right after installation its
+               index build needs a few minutes.
+   Electrum:  ${NODE_DOMAIN}:50001 (t, plain TCP) and :50002 (s -- WARNING:
+              despite the port name, also just plain TCP, no real SSL/TLS,
+              see the docker-compose.yml comment at elektron-electrs)
+   Accelerator: $( [ "$MEMPOOL_ACCELERATOR" = "true" ] && echo "active -- menu + boost button, links to mempool.space (no port of its own needed)" || echo "off (MEMPOOL_ACCELERATOR=true to enable)" )
 MEMPOOL_SUMMARY
 )
 
- Pool-Wallet-Adresse:   $( [ "$INSTALL_POOL" = "true" ] && echo "${POOL_ADDR}" || echo "(Pool nicht installiert)" )
- Faucet-Wallet-Adresse: $( [ "$INSTALL_FAUCET" = "true" ] && echo "${FAUCET_ADDR}" || echo "(Faucet nicht installiert)" )
+ Pool wallet address:   $( [ "$INSTALL_POOL" = "true" ] && echo "${POOL_ADDR}" || echo "(pool not installed)" )
+ Faucet wallet address: $( [ "$INSTALL_FAUCET" = "true" ] && echo "${FAUCET_ADDR}" || echo "(faucet not installed)" )
 
 $( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_DUMP_SUMMARY
- Vollständiger Private-Key-Export der installierten Wallets (Legacy-Dump
- oder Descriptor-Fallback, je nachdem was unterstützt wurde):
+ Full private-key export of the installed wallets (legacy dump or
+ descriptor fallback, depending on what was supported):
 $( [ "$INSTALL_POOL" = "true" ] && echo "   ${POOL_WALLET_DUMP_HOST}" )
 $( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${FAUCET_WALLET_DUMP_HOST}" )
- (chmod 600, einmalig beim ersten Anlegen erzeugt -- wird bei Reruns nicht
- überschrieben. Das ist die eigentliche Wiederherstellungs-Grundlage für
- den Fall, dass der Server verloren geht; die Passphrase oben allein reicht
- dafür NICHT, die entsperrt nur eine bereits vorhandene Wallet-Datei.)
+ (chmod 600, created once the first time each wallet was set up -- not
+ overwritten on reruns. This is the actual recovery basis in case the
+ server is lost; the passphrase above alone is NOT enough, it only
+ unlocks an already-existing wallet file.)
 WALLET_DUMP_SUMMARY
 )
 
  ----------------------------------------------------------------------------
- ALLE ZUGANGSDATEN AUF EINEN BLICK:
+ ALL CREDENTIALS AT A GLANCE:
 
-   RPC-Benutzer (Node):          ${RPC_USER}
-   RPC-Passwort (Node):          ${RPC_PASSWORD}
+   RPC username (node):          ${RPC_USER}
+   RPC password (node):          ${RPC_PASSWORD}
 $( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_CREDS
    Pool JWT_SECRET:              ${JWT_SECRET}
-   Pool-Wallet-Passphrase:       ${POOL_WALLET_PASSPHRASE}
+   Pool wallet passphrase:       ${POOL_WALLET_PASSPHRASE}
 POOL_CREDS
 )
 $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_CREDS
-   Faucet-DB-Passwort:           ${FAUCET_DB_PASS}
-   Faucet-DB-Root-Passwort:      ${FAUCET_DB_ROOT_PASS}
-   Faucet-Admin-Passwort:        ${FAUCET_ADMIN_PASS}
-   Faucet-Wallet-Passphrase:     ${FAUCET_WALLET_PASSPHRASE}
-   hCaptcha Site-Key:            ${FAUCET_HCAPTCHA_SITE:-"(nicht gesetzt)"}
-   hCaptcha Secret-Key:          ${FAUCET_HCAPTCHA_SECRET:-"(nicht gesetzt)"}
+   Faucet DB password:           ${FAUCET_DB_PASS}
+   Faucet DB root password:      ${FAUCET_DB_ROOT_PASS}
+   Faucet admin password:        ${FAUCET_ADMIN_PASS}
+   Faucet wallet passphrase:     ${FAUCET_WALLET_PASSPHRASE}
+   hCaptcha site key:            ${FAUCET_HCAPTCHA_SITE:-"(not set)"}
+   hCaptcha secret key:          ${FAUCET_HCAPTCHA_SECRET:-"(not set)"}
 FAUCET_CREDS
 )
 $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_CREDS
-   Mempool-DB-Passwort:          ${MEMPOOL_DB_PASS}
-   Mempool-DB-Root-Passwort:     ${MEMPOOL_DB_ROOT_PASS}
+   Mempool DB password:          ${MEMPOOL_DB_PASS}
+   Mempool DB root password:     ${MEMPOOL_DB_ROOT_PASS}
 MEMPOOL_CREDS
 )
 
- Bei diesem Lauf neu generiert:
-   ${GENERATED_SECRETS:-"(nichts -- alles oben stammt aus einem vorherigen Lauf oder wurde von dir vorgegeben)"}
- Aus einem vorherigen Lauf wiederverwendet (unverändert, kein Reset):
-   ${REUSED_SECRETS:-"(nichts -- das war der erste Lauf)"}
- Alles andere oben hast du selbst vorgegeben (Config-Datei/Prompt).
+ Newly generated on this run:
+   ${GENERATED_SECRETS:-"(nothing -- everything above came from a previous run or was supplied by you)"}
+ Reused from a previous run (unchanged, no reset):
+   ${REUSED_SECRETS:-"(nothing -- this was the first run)"}
+ Everything else above you supplied yourself (config file/prompt).
  ----------------------------------------------------------------------------
 
- NÄCHSTE SCHRITTE:
+ NEXT STEPS:
 $( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<PREPAID_NEXT
- - Wallet-Adresse(n) oben von deinem Prepaid-Bestand aus mit ELEK befüllen
-   (Hot Wallet klein halten).
+ - Fund the wallet address(es) above from your prepaid balance with ELEK
+   (keep the hot wallet small).
 PREPAID_NEXT
 )
 $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_NEXT
- - https://${FAUCET_DOMAIN}/admin.php -> Settings -> "Test RPC connection"
-   und "Test wallet unlock" grün bekommen.
- - public/install.php im Faucet löschen:
+ - https://${FAUCET_DOMAIN}/admin.php -> Settings -> get "Test RPC
+   connection" and "Test wallet unlock" green.
+ - Delete public/install.php in the faucet:
    docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-faucet-app rm -f public/install.php
- - hCaptcha-Keys nachtragen, falls beim Ausführen leer gelassen.
+ - Fill in the hCaptcha keys if they were left blank when running the script.
 FAUCET_NEXT
 )
 $( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_NEXT
- - elektron-net-ppool/.env: PAYOUT_DRY_RUN=true lassen, bis eine simulierte
-   Auszahlung im Log geprüft wurde, dann auf false stellen und
-   'docker compose --profile pool up -d --force-recreate elektron-ppool' ausführen.
+ - elektron-net-ppool/.env: keep PAYOUT_DRY_RUN=true until you've checked
+   a simulated payout in the log, then switch it to false and run
+   'docker compose --profile pool up -d --force-recreate elektron-ppool'.
 POOL_NEXT
 )
- - Falls noch nicht geschehen: AAAA-Records bei world4you anlegen
+ - If not done yet: create AAAA records at your DNS provider
    (${NODE_DOMAIN}$( [ "$INSTALL_POOL" = "true" ] && echo ", ${POOL_DOMAIN}" )$( [ "$INSTALL_FAUCET" = "true" ] && echo ", ${FAUCET_DOMAIN}" ) -> ${SERVER_IPV6}).
-   P2P (8333)$( [ "$INSTALL_POOL" = "true" ] && echo ", Stratum (3333)" ) und Caddy (80/443) sind bereits
-   Dual-Stack published -- sobald AAAA existiert, funktioniert alles auch
-   über IPv6.
- - Optional, aber für einen öffentlichen Seed-Node empfehlenswert: Reverse
-   DNS (PTR) für ${SERVER_IPV6} im Hetzner-Panel setzen (Networking -> bei
-   der IPv6-Zeile die "..." -> Reverse DNS, zeigte bei dir "0 Einträge"),
-   z.B. auf ${NODE_DOMAIN} -- viele Peers werten das bei der Node-Reputation
-   positiv.
+   P2P (8333)$( [ "$INSTALL_POOL" = "true" ] && echo ", Stratum (3333)" ) and Caddy (80/443) are already
+   published dual-stack -- once the AAAA record exists, everything works
+   over IPv6 too.
+ - Optional, but recommended for a public seed node: set reverse DNS
+   (PTR) for ${SERVER_IPV6} in your provider's panel (networking section)
+   -- e.g. pointing to ${NODE_DOMAIN} -- many peers weight this
+   positively in node reputation.
 $( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_NEXT
- - Seeder testen, bevor du ihn produktiv verlinkst:
-   dig -t NS ${SEEDER_HOST}            (muss auf ${SEEDER_NS} zeigen)
-   dig @${SERVER_IP} -p 53 ${SEEDER_HOST}   (geht auch vor propagierter Delegation)
+ - Test the seeder before linking it in production:
+   dig -t NS ${SEEDER_HOST}            (must point to ${SEEDER_NS})
+   dig @${SERVER_IP} -p 53 ${SEEDER_HOST}   (works even before the delegation has propagated)
    docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
 SEEDER_NEXT
 )
 
- Hinweis zur privaten Netzwerk-IP (10.0.0.2, Hetzner vSwitch):
- Wird von diesem Stack aktuell nicht gebraucht -- alle Container sprechen
- intern über Docker-eigene Netzwerke. Nützlich erst, falls du später z.B.
- die Wallet auf einen zweiten, isolierten Hetzner-Server auslagerst (siehe
- ppool-README §9, "network-isolated wallet server").
+ Note on the private network IP (provider VLAN/vSwitch, e.g. Hetzner's):
+ not currently needed by this stack -- all containers communicate
+ internally over Docker's own networks. Only becomes relevant if you
+ later, say, move the wallet to a second, isolated server (see the
+ ppool README, section 9, "network-isolated wallet server").
 
  ----------------------------------------------------------------------------
- NÜTZLICHE BEFEHLE (siehe auch README "Stack aktualisieren"):
+ USEFUL COMMANDS (see also the README, "Updating the stack"):
 
-   Status aller Container:
+   Status of all containers:
      docker compose -f ${STACK_DIR}/docker-compose.yml ps
-   Logs verfolgen (z.B. Node):
+   Follow logs (e.g. the node):
      docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net
-   Node-Sync-Status (RPC-Zugangsdaten nötig, da "docker compose exec" als root
-   läuft und die automatische Cookie-Datei-Erkennung dann nicht greift):
+   Node sync status (RPC credentials needed, since "docker compose exec"
+   runs as root and automatic cookie-file discovery doesn't work then):
      docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-net elektron-cli -rpcuser=${RPC_USER} -rpcpassword=${RPC_PASSWORD} getblockchaininfo
-   Nur einen Service nach einer .env-Änderung neu starten:
+   Restart just one service after a .env change:
      docker compose -f ${STACK_DIR}/docker-compose.yml up -d --force-recreate <service>
-   Diese Übersicht jederzeit erneut ansehen:
+   View this summary again at any time:
      cat ${SUMMARY_FILE}
  ----------------------------------------------------------------------------
 
- Diese Zusammenfassung wird bei jedem (Re-)Lauf des Skripts hier neu
- geschrieben: ${SUMMARY_FILE}
- Die zugrundeliegenden Rohdaten stehen außerdem dauerhaft in:
+ This summary gets rewritten here on every (re-)run of the script:
+ ${SUMMARY_FILE}
+ The underlying raw data also lives permanently in:
 $( [ "$INSTALL_POOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-ppool/.env" )
 $( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${STACK_DIR}/elektron-net-faucet/.env" )
-   ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth-Hash, nicht das Klartext-Passwort)
+   ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth hash, not the plaintext password)
 $( [ "$INSTALL_MEMPOOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-mempool/.env" )
- (alle chmod 600, nicht committen.)
+ (all chmod 600, don't commit them.)
 
 $( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_WARNING
- WICHTIG: encryptwallet ist ein Einwegvorgang -- ${INSTALLED_WALLETS_LABEL} ${INSTALLED_WALLETS_VERB} mittlerweile verschlüsselt. Die Passphrasen oben stehen NUR in dieser Datei${INSTALLED_WALLET_ENV_REFS} -- plus im vollständigen Private-Key-Export weiter oben. Es gibt keine
- andere Kopie, auch nicht auf der Blockchain. Verlierst du eine dieser
- Dateien, ist das jeweilige Wallet-Guthaben nicht mehr ausgebbar.
+ IMPORTANT: encryptwallet is a one-way operation -- ${INSTALLED_WALLETS_LABEL} ${INSTALLED_WALLETS_VERB} now encrypted. The passphrases above live ONLY in this file${INSTALLED_WALLET_ENV_REFS} -- plus in the complete private-key export further up. There is no
+ other copy, not even on the blockchain. If you lose one of these
+ files, the respective wallet balance can no longer be spent.
 WALLET_WARNING
 )
 
 $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_APP_KEY_NOTE
- Weiterer wichtiger Ort: der Faucet-App generiert beim allerersten Start
- selbst einen Verschlüsselungs-Key für Daten "at rest" (FAUCET_APP_KEY) und
- schreibt ihn NUR nach ${STACK_DIR}/data/faucet-config/config.php -- steht
- in keiner .env und wird von diesem Skript nicht verwaltet, gehört aber zum
- selben Bedrohungsmodell wie alles andere hier (mit sichern, chmod 600).
+ One more important location: the faucet app generates its own
+ encryption key for data "at rest" (FAUCET_APP_KEY) the first time it
+ starts and writes it ONLY to ${STACK_DIR}/data/faucet-config/config.php
+ -- it lives in no .env and isn't managed by this script, but belongs to
+ the same threat model as everything else here (back it up too, chmod 600).
 FAUCET_APP_KEY_NOTE
 )
 
  ----------------------------------------------------------------------------
- EXTERNE / SELBST ERZEUGTE WALLETS
- (jede Datei in ${EXTERNAL_WALLETS_DIR}/ -- z.B. eine offline mit einem
- eigenen Skript wie generate_address.py erzeugte Prepaid-Wallet -- bleibt
- ihre eigene separate Datei mit chmod 600. Hier nur Name + Pfad als
- Verweis, der eigentliche Private Key steht NUR in der jeweiligen Datei
- selbst, nicht zusätzlich hier. Lege dort beliebige Dateien ab, dann
- tauchen sie ab dem nächsten Lauf hier in der Liste auf.)
+ EXTERNAL / SELF-GENERATED WALLETS
+ (every file in ${EXTERNAL_WALLETS_DIR}/ -- e.g. a prepaid wallet
+ generated offline with your own script such as generate_address.py --
+ stays its own separate file with chmod 600. Only name + path are listed
+ here as a reference, the actual private key lives ONLY in that file
+ itself, not additionally here. Drop any files there, and they'll show
+ up in this list starting with the next run.)
 ${EXTERNAL_WALLETS_BLOCK}
 ============================================================================
 SUMMARY
 } | tee "$SUMMARY_FILE"
 chmod 600 "$SUMMARY_FILE"
-# Falls die Faucet-App ihren FAUCET_APP_KEY bereits geschrieben hat (siehe
-# Hinweis oben) -- nur ein Best-effort-chmod, kein Fehler falls noch nicht
-# vorhanden (der Container kann noch ein paar Sekunden brauchen).
+# In case the faucet app has already written its FAUCET_APP_KEY (see the
+# note above) -- just a best-effort chmod, no error if it doesn't exist
+# yet (the container may still need a few seconds).
 if [ -f "${STACK_DIR}/data/faucet-config/config.php" ]; then
   chmod 600 "${STACK_DIR}/data/faucet-config/config.php" 2>/dev/null || true
 fi
