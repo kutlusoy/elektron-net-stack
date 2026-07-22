@@ -315,9 +315,11 @@ kurz zusammengefasst:
 | Server/Domains | `GITHUB_USER`, `SERVER_IP`, `SERVER_IPV6`, `NODE_DOMAIN`, `POOL_DOMAIN`, `FAUCET_DOMAIN`, `CADDY_EMAIL` |
 | Node/Firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
 | Repo-Updates | `AUTO_UPDATE_REPOS` (leer/`false` = nie automatisch aktualisieren, siehe "Stack aktualisieren") |
+| Pool (optional, Default an) | `INSTALL_POOL` (Default `true`, Compose-Profil "pool"; deaktiviert schließt auch Stratum-Port 3333 wieder) |
 | Pool-Verhalten | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
 | Pool-Wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (leer = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool-Benachrichtigungen (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
+| Faucet (optional, Default an) | `INSTALL_FAUCET` (Default `true`, Compose-Profil "faucet"; keine eigene Portfreigabe, läuft hinter Caddy) |
 | Faucet-Wallet/DB | `FAUCET_WALLET_NAME`, `FAUCET_WALLET_PASSPHRASE` (leer = auto), `FAUCET_DB_NAME`, `FAUCET_DB_USER`, `FAUCET_DB_PASS`/`FAUCET_DB_ROOT_PASS` (leer = auto) |
 | Faucet-Login | `FAUCET_ADMIN_USER`, `FAUCET_ADMIN_PASS` (leer = auto) |
 | Faucet-Business | `FAUCET_HCAPTCHA_SITE`/`_SECRET`, `FAUCET_TITLE`, `FAUCET_MESSAGE`, `FAUCET_AMOUNT_ELEK`, `FAUCET_DAILY_BUDGET`, `FAUCET_HOURLY_BUDGET`, `FAUCET_PER_ADDR_COOLDOWN_H`, `FAUCET_PER_IP_COOLDOWN_H`, `FAUCET_DEFAULT_LANG`, `FAUCET_EXPLORER_URL` |
@@ -349,7 +351,7 @@ Kurzfassung zuerst, Details darunter:
 |---|---|
 | Eine Einstellung in `elektron-stack.conf` (Domain, hCaptcha-Key, Payout-Parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
 | Sourcecode eines der Repos (neue Version auf GitHub) | `git pull` im jeweiligen Ordner -> `docker compose up -d --build <service>` |
-| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose --profile mempool pull caddy elektron-faucet-db elektron-mempool-db` -> `docker compose --profile mempool up -d` |
+| Caddy- oder MariaDB-Image (Upstream-Update) | `docker compose --profile pool --profile faucet --profile mempool pull caddy elektron-faucet-db elektron-mempool-db` -> `docker compose --profile pool --profile faucet --profile mempool up -d` |
 
 ### A) Nur eine Einstellung geändert
 
@@ -375,15 +377,15 @@ editieren und nur den betroffenen Service neu erzeugen:
 ```bash
 cd /opt/elektron-net-stack
 nano elektron-net-faucet/.env        # oder elektron-net-ppool/.env, caddy/Caddyfile, elektron-net/bitcoin.conf
-docker compose up -d --force-recreate elektron-faucet-app
+docker compose --profile faucet up -d --force-recreate elektron-faucet-app   # --profile pool statt --profile faucet für ppool/.env
 ```
 
 | Geänderte Datei | Neu zu startender Service |
 |---|---|
 | `caddy/Caddyfile` | `caddy` |
-| `elektron-net-ppool/.env` | `elektron-ppool` |
-| `elektron-net-ppool-ui`-Umgebung | `elektron-ppool-ui` |
-| `elektron-net-faucet/.env` | `elektron-faucet-app` |
+| `elektron-net-ppool/.env` (nur falls `INSTALL_POOL=true`) | `docker compose --profile pool up -d --force-recreate elektron-ppool` (das `--profile pool` nicht vergessen, sonst ignoriert Compose den Service) |
+| `elektron-net-ppool-ui`-Umgebung (nur falls `INSTALL_POOL=true`) | `docker compose --profile pool up -d --force-recreate elektron-ppool-ui` |
+| `elektron-net-faucet/.env` (nur falls `INSTALL_FAUCET=true`) | `docker compose --profile faucet up -d --force-recreate elektron-faucet-app` (das `--profile faucet` nicht vergessen, sonst ignoriert Compose den Service) |
 | `elektron-net/bitcoin.conf` | `elektron-net` (kurzer Node-Neustart, P2P kurz offline) |
 | `elektron-net-mempool/.env` (nur falls `INSTALL_MEMPOOL=true`) | `docker compose --profile mempool up -d --force-recreate elektron-mempool-api elektron-mempool-web` |
 | `elektron-net-seeder/.env` (nur falls `INSTALL_SEEDER=true`) | `docker compose --profile seeder up -d --force-recreate elektron-net-seeder` (das `--profile seeder` nicht vergessen, sonst ignoriert Compose den Service) |
@@ -435,19 +437,20 @@ cd /opt/elektron-net-stack
 for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool elektron-net-electrs; do
   [ -d "$d" ] && (cd "$d" && git pull)
 done
-docker compose --profile mempool up -d --build   # --profile mempool nur nötig, falls INSTALL_MEMPOOL=true
+docker compose --profile pool --profile faucet --profile mempool up -d --build   # nur die Profile mitgeben, die bei dir auch aktiv sind (INSTALL_POOL/FAUCET/MEMPOOL)
 ```
 
 ### C) Docker-Images aktualisieren (Caddy, MariaDB)
 
-`caddy`, `elektron-faucet-db` und (falls `INSTALL_MEMPOOL=true`)
-`elektron-mempool-db` sind fertige Images von Docker Hub (kein eigener
-Build) -- neue Version holen und Container damit neu starten:
+`caddy`, `elektron-faucet-db` (falls `INSTALL_FAUCET=true`) und (falls
+`INSTALL_MEMPOOL=true`) `elektron-mempool-db` sind fertige Images von
+Docker Hub (kein eigener Build) -- neue Version holen und Container damit
+neu starten:
 
 ```bash
 cd /opt/elektron-net-stack
-docker compose --profile mempool pull caddy elektron-faucet-db elektron-mempool-db
-docker compose --profile mempool up -d
+docker compose --profile faucet --profile mempool pull caddy elektron-faucet-db elektron-mempool-db
+docker compose --profile faucet --profile mempool up -d
 ```
 
 Die Datenbank-Daten liegen im Bind-Mount `./data/faucet-db` bzw.
@@ -462,8 +465,8 @@ cd /opt/elektron-net-stack
 for d in elektron-net elektron-net-ppool elektron-net-ppool-ui elektron-net-faucet elektron-net-mempool elektron-net-electrs; do
   [ -d "$d" ] && (cd "$d" && git pull)
 done
-docker compose --profile mempool pull
-docker compose --profile mempool up -d --build
+docker compose --profile pool --profile faucet --profile mempool pull
+docker compose --profile pool --profile faucet --profile mempool up -d --build
 ```
 
 Kurzer Hinweis: Der `elektron-net`-Container neu zu starten unterbricht kurz
@@ -740,33 +743,46 @@ docker compose ps
 ```
 
 Firewall (ufw Beispiel -- deckt bei aktivem `IPV6=yes` in `/etc/default/ufw`,
-Ubuntu-Standard, automatisch auch IPv6 mit ab):
+Ubuntu-Standard, automatisch auch IPv6 mit ab). Immer offen, unabhängig von
+optionalen Komponenten (Node + Caddy sind Pflicht):
 ```bash
 sudo ufw allow 8333/tcp comment 'Elektron P2P seed'
-sudo ufw allow 3333/tcp comment 'Elektron PPLNS Stratum'
 sudo ufw allow 80/tcp
 sudo ufw allow 443/tcp
 sudo ufw reload
 ```
 
-Zusätzlich im **Hetzner Cloud-Firewall-Panel** (Tab "Firewalls") dieselben
-4 Ports öffnen -- dort getrennt für IPv4 und IPv6 aktivieren, sonst greift
-die Cloud-Firewall vor ufw und blockt IPv6-Traffic trotzdem.
+Das sind die 3 Basis-Ports. Zusätzlich im **Hetzner Cloud-Firewall-Panel**
+(Tab "Firewalls") dieselben Ports öffnen -- dort getrennt für IPv4 und
+IPv6 aktivieren, sonst greift die Cloud-Firewall vor ufw und blockt
+IPv6-Traffic trotzdem.
 
-Bei Hetzner zusätzlich im Cloud-Firewall-Panel dieselben 4 Ports öffnen.
+**Läuft `INSTALL_POOL=true` (Default):** ein weiterer Port kommt dazu --
+`3333/tcp` (PPLNS-Stratum). `install-elektron-stack.sh` übernimmt das bei
+`FIREWALL_AUTO_CONFIGURE=true` automatisch (inkl. wieder Schließen, falls
+`INSTALL_POOL` nachträglich auf `false` gesetzt wird); manuell:
+```bash
+sudo ufw allow 3333/tcp comment 'Elektron PPLNS Stratum'
+sudo ufw reload
+```
 
 **Läuft `INSTALL_MEMPOOL=true` (Default):** zwei weitere Ports kommen dazu
 -- `50001/tcp` und `50002/tcp` (electrs, siehe
-["Mempool Explorer"](#mempool-explorer-optional)) --, macht 6 statt 4 Ports
-in ufw UND im Hetzner Cloud-Firewall-Panel. `install-elektron-stack.sh`
-übernimmt das bei `FIREWALL_AUTO_CONFIGURE=true` automatisch (inkl. wieder
-Schließen, falls `INSTALL_MEMPOOL` nachträglich auf `false` gesetzt wird);
-manuell:
+["Mempool Explorer"](#mempool-explorer-optional)). `install-elektron-stack.sh`
+übernimmt das ebenso automatisch (inkl. wieder Schließen bei
+`INSTALL_MEMPOOL=false`); manuell:
 ```bash
 sudo ufw allow 50001/tcp comment 'Elektron electrs Electrum (t)'
 sudo ufw allow 50002/tcp comment 'Elektron electrs Electrum (s, plain TCP trotz Portname)'
 sudo ufw reload
 ```
+
+`INSTALL_FAUCET` braucht **keine** eigene Portfreigabe (läuft nur hinter
+Caddy, wie das Pool-Dashboard).
+
+Mit den Defaults (Pool + Faucet + Mempool an, Seeder aus) macht das 6
+Ports in ufw UND im Hetzner Cloud-Firewall-Panel. Das Skript zeigt am Ende
+immer die für deine aktuelle Konfiguration tatsächlich benötigte Anzahl an.
 
 ## 8. Prüfen
 

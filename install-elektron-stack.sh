@@ -71,6 +71,7 @@ RPC_USER="elektron_svc"                       # rpcauth username (password is au
 FIREWALL_AUTO_CONFIGURE=true                  # true = run ufw commands automatically
 
 # --- Pool (elektron-net-ppool) ---
+INSTALL_POOL="true"                           # true = clone/build/start ppool + ppool-ui (Compose profile "pool"); publishes STRATUM_PORT
 POOL_WALLET_NAME="pool"                       # wallet name on the node for pool payouts
 # leave empty to auto-generate a strong passphrase (printed at the end -- save it!):
 # The pool wallet gets encrypted with this just like the faucet wallet --
@@ -103,6 +104,7 @@ DISCORD_BOT_GUILD_ID=""
 DISCORD_BOT_CHANNEL_ID=""
 
 # --- Faucet (elektron-net-faucet) ---
+INSTALL_FAUCET="true"                         # true = clone/build/start faucet-db + faucet-app (Compose profile "faucet"); no new port, Caddy-proxied
 FAUCET_WALLET_NAME="faucet"                   # wallet name on the node for faucet payouts
 # leave empty to auto-generate a strong passphrase (printed at the end -- save it!):
 FAUCET_WALLET_PASSPHRASE=""
@@ -151,13 +153,13 @@ MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-
 # sync with the block above. Doubles as the whitelist for config-file keys
 # (so an uploaded file can only ever set plain values, never run code).
 CONFIG_VARS="STACK_DIR GITHUB_USER AUTO_UPDATE_REPOS SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
-FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE POOL_WALLET_NAME
+FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE INSTALL_POOL POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
 POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
 API_PORT JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_BOT_USERNAME DISCORD_BOT_TOKEN
 DISCORD_BOT_CLIENTID DISCORD_BOT_GUILD_ID DISCORD_BOT_CHANNEL_ID
-FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
+INSTALL_FAUCET FAUCET_WALLET_NAME FAUCET_WALLET_PASSPHRASE FAUCET_DB_NAME
 FAUCET_DB_USER FAUCET_DB_PASS FAUCET_DB_ROOT_PASS FAUCET_ADMIN_USER FAUCET_ADMIN_PASS
 FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_AMOUNT_ELEK
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
@@ -271,13 +273,19 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   ask SERVER_IP     "Öffentliche IPv4-Adresse dieses Servers"
   ask SERVER_IPV6   "Öffentliche IPv6-Adresse (wird unten zusätzlich automatisch erkannt)"
   ask NODE_DOMAIN   "Domain für den P2P-Seed-Node"
-  ask POOL_DOMAIN   "Domain für das Pool-Dashboard"
-  ask FAUCET_DOMAIN "Domain für den Faucet"
   ask CADDY_EMAIL   "E-Mail für Let's Encrypt (optional, Enter zum Überspringen)"
-  ask FAUCET_HCAPTCHA_SITE   "hCaptcha Site-Key von hcaptcha.com (optional, aber empfohlen)"
-  ask FAUCET_HCAPTCHA_SECRET "hCaptcha Secret-Key (optional)"
   log "Alle Passwörter/Secrets (JWT_SECRET, DB-Passwörter, Wallet-Passphrase, RPC-Passwort,"
   log "Faucet-Admin-Passwort) werden gleich automatisch generiert, sofern nicht per Config-Datei vorgegeben."
+  ask_yes_no INSTALL_POOL "PPLNS-Mining-Pool (elektron-net-ppool + Dashboard) installieren?"
+  if [ "$INSTALL_POOL" = "true" ]; then
+    ask POOL_DOMAIN "Domain für das Pool-Dashboard"
+  fi
+  ask_yes_no INSTALL_FAUCET "Faucet (elektron-net-faucet) installieren?"
+  if [ "$INSTALL_FAUCET" = "true" ]; then
+    ask FAUCET_DOMAIN "Domain für den Faucet"
+    ask FAUCET_HCAPTCHA_SITE   "hCaptcha Site-Key von hcaptcha.com (optional, aber empfohlen)"
+    ask FAUCET_HCAPTCHA_SECRET "hCaptcha Secret-Key (optional)"
+  fi
   ask_yes_no INSTALL_SEEDER "Seeder (DNS-Crawler, optional, noch in Testphase) zusätzlich installieren? Siehe README 'Seeder (optional, Testphase)'"
   if [ "$INSTALL_SEEDER" = "true" ]; then
     ask SEEDER_HOST "Hostname des DNS-Seeds (braucht eigene NS-Delegation in DNS, siehe README)"
@@ -436,7 +444,9 @@ elif [ -z "$DETECTED_IPV6" ]; then
 fi
 
 # --- Soft DNS sanity check (does not abort on mismatch, just warns) ---
-DOMAINS_TO_CHECK="$NODE_DOMAIN $POOL_DOMAIN $FAUCET_DOMAIN"
+DOMAINS_TO_CHECK="$NODE_DOMAIN"
+[ "$INSTALL_POOL" = "true" ] && DOMAINS_TO_CHECK="$DOMAINS_TO_CHECK $POOL_DOMAIN"
+[ "$INSTALL_FAUCET" = "true" ] && DOMAINS_TO_CHECK="$DOMAINS_TO_CHECK $FAUCET_DOMAIN"
 [ "$INSTALL_MEMPOOL" = "true" ] && DOMAINS_TO_CHECK="$DOMAINS_TO_CHECK $MEMPOOL_DOMAIN"
 for d in $DOMAINS_TO_CHECK; do
   resolved="$(getent ahostsv4 "$d" 2>/dev/null | awk '{print $1}' | head -n1 || true)"
@@ -516,9 +526,9 @@ clone_or_skip() {
 }
 
 clone_or_skip "elektron-net"
-clone_or_skip "elektron-net-ppool"
-clone_or_skip "elektron-net-ppool-ui"
-clone_or_skip "elektron-net-faucet"
+[ "$INSTALL_POOL" = "true" ] && clone_or_skip "elektron-net-ppool"
+[ "$INSTALL_POOL" = "true" ] && clone_or_skip "elektron-net-ppool-ui"
+[ "$INSTALL_FAUCET" = "true" ] && clone_or_skip "elektron-net-faucet"
 [ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-mempool"
 # elektron-net-electrs (Electrum-Server) gehört fest zum Mempool-Explorer:
@@ -526,7 +536,9 @@ clone_or_skip "elektron-net-faucet"
 # Compose-Profil "mempool" -- installiert/gestartet/entfernt immer gemeinsam.
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-electrs"
 
-mkdir -p caddy data/elektron-net data/ppool-DB data/faucet-db data/faucet-config external-wallets
+mkdir -p caddy data/elektron-net external-wallets
+[ "$INSTALL_POOL" = "true" ] && mkdir -p data/ppool-DB
+[ "$INSTALL_FAUCET" = "true" ] && mkdir -p data/faucet-db data/faucet-config
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
 [ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache data/electrs
 
@@ -660,9 +672,11 @@ zmqpubrawtx=tcp://0.0.0.0:28333
 disablewallet=0
 # Auto-load these wallets on every node startup -- without this, a restart
 # leaves listwallets empty and pool/faucet payouts fail until someone runs
-# `loadwallet` by hand.
-wallet=${POOL_WALLET_NAME}
-wallet=${FAUCET_WALLET_NAME}
+# `loadwallet` by hand. Only listed here for whichever of pool/faucet is
+# actually installed, so the node never tries to auto-load a wallet that
+# was never created.
+$( [ "$INSTALL_POOL" = "true" ] && echo "wallet=${POOL_WALLET_NAME}" )
+$( [ "$INSTALL_FAUCET" = "true" ] && echo "wallet=${FAUCET_WALLET_NAME}" )
 CONF_EOF
 
 # ============================================================================
@@ -687,6 +701,8 @@ services:
 
   elektron-ppool:
     container_name: elektron-ppool
+    profiles:
+      - pool
     build:
       context: ./elektron-net-ppool
     restart: unless-stopped
@@ -702,6 +718,8 @@ services:
 
   elektron-ppool-ui:
     container_name: elektron-ppool-ui
+    profiles:
+      - pool
     build:
       context: ./elektron-net-ppool-ui
     restart: unless-stopped
@@ -717,6 +735,8 @@ services:
     container_name: elektron-faucet-db
     image: mariadb:11.4
     restart: unless-stopped
+    profiles:
+      - faucet
     env_file: ./elektron-net-faucet/.env
     environment:
       MYSQL_DATABASE: ${FAUCET_DB_NAME}
@@ -735,6 +755,8 @@ services:
 
   elektron-faucet-app:
     container_name: elektron-faucet-app
+    profiles:
+      - faucet
     build:
       context: ./elektron-net-faucet
     restart: unless-stopped
@@ -909,14 +931,18 @@ log "Schreibe caddy/Caddyfile ..."
     echo
   fi
   echo "# ${NODE_DOMAIN} bekommt bewusst keinen Block -- reiner P2P-Seed (Port 8333)."
-  echo
-  echo "${POOL_DOMAIN} {"
-  echo "	reverse_proxy elektron-ppool-ui:80"
-  echo "}"
-  echo
-  echo "${FAUCET_DOMAIN} {"
-  echo "	reverse_proxy elektron-faucet-app:80"
-  echo "}"
+  if [ "$INSTALL_POOL" = "true" ]; then
+    echo
+    echo "${POOL_DOMAIN} {"
+    echo "	reverse_proxy elektron-ppool-ui:80"
+    echo "}"
+  fi
+  if [ "$INSTALL_FAUCET" = "true" ]; then
+    echo
+    echo "${FAUCET_DOMAIN} {"
+    echo "	reverse_proxy elektron-faucet-app:80"
+    echo "}"
+  fi
   if [ "$INSTALL_MEMPOOL" = "true" ]; then
     echo
     echo "${MEMPOOL_DOMAIN} {"
@@ -926,8 +952,9 @@ log "Schreibe caddy/Caddyfile ..."
 } > caddy/Caddyfile
 
 # ============================================================================
-# 7. elektron-net-ppool/.env
+# 7. elektron-net-ppool/.env -- nur falls INSTALL_POOL=true
 # ============================================================================
+if [ "$INSTALL_POOL" = "true" ]; then
 log "Schreibe elektron-net-ppool/.env ..."
 cat > elektron-net-ppool/.env <<ENV_EOF
 ELEKTRON_RPC_URL=http://elektron-net
@@ -979,10 +1006,12 @@ WALLET_UNLOCK_SECONDS=${WALLET_UNLOCK_SECONDS}
 
 JWT_SECRET=${JWT_SECRET}
 ENV_EOF
+fi
 
 # ============================================================================
-# 8. elektron-net-faucet/.env
+# 8. elektron-net-faucet/.env -- nur falls INSTALL_FAUCET=true
 # ============================================================================
+if [ "$INSTALL_FAUCET" = "true" ]; then
 log "Schreibe elektron-net-faucet/.env ..."
 cat > elektron-net-faucet/.env <<ENV_EOF
 FAUCET_PORT=8080
@@ -1021,6 +1050,7 @@ FAUCET_SENDER_ADDR=
 FAUCET_EXPLORER_URL=${FAUCET_EXPLORER_URL}
 FAUCET_DEFAULT_LANG=${FAUCET_DEFAULT_LANG}
 ENV_EOF
+fi
 
 # ============================================================================
 # 8b. elektron-net-seeder/.env -- nur falls INSTALL_SEEDER=true
@@ -1152,8 +1182,10 @@ ELECTRS_EOF
 fi
 
 # Docker Compose braucht eine .env im Projekt-Root, um ${FAUCET_DB_*} in
-# docker-compose.yml aufzulösen -- Symlink hält beide Dateien synchron.
-ln -sf elektron-net-faucet/.env .env
+# docker-compose.yml aufzulösen -- Symlink hält beide Dateien synchron. Nur
+# nötig, wenn der Faucet auch installiert ist (bzw. war -- die Datei bleibt
+# beim Deinstallieren erhalten, siehe "Faucet deaktivieren" weiter unten).
+[ "$INSTALL_FAUCET" = "true" ] && ln -sf elektron-net-faucet/.env .env
 
 # ============================================================================
 # 9. Node zuerst hochfahren
@@ -1185,8 +1217,14 @@ log "Warte auf RPC-Bereitschaft von elektron-net ..."
 wait_for_rpc
 
 # ============================================================================
-# 10. Wallets anlegen -- PFLICHT für Pool und Faucet
+# 10. Wallets anlegen -- je nachdem, ob Pool/Faucet installiert sind
 # ============================================================================
+# POOL_ADDR/FAUCET_ADDR bleiben leer, falls die jeweilige Komponente nicht
+# installiert ist -- unter "set -u" muss das explizit vorbelegt sein, statt
+# sich darauf zu verlassen, dass der Block weiter unten sie schon setzt.
+POOL_ADDR=""
+FAUCET_ADDR=""
+
 wallet_loaded() {
   node_cli listwallets | grep -q "\"$1\""
 }
@@ -1202,16 +1240,18 @@ create_wallet_if_missing() {
   fi
 }
 
-log "Lege Pool-Wallet an ..."
-create_wallet_if_missing "$POOL_WALLET_NAME"
-if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
-  POOL_ADDR="$EXISTING_POOL_WALLET_ADDRESS"
-  log "Pool-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${POOL_ADDR}"
-else
-  POOL_ADDR="$(node_cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
-  log "Neue Pool-Wallet-Adresse: ${POOL_ADDR}"
+if [ "$INSTALL_POOL" = "true" ]; then
+  log "Lege Pool-Wallet an ..."
+  create_wallet_if_missing "$POOL_WALLET_NAME"
+  if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
+    POOL_ADDR="$EXISTING_POOL_WALLET_ADDRESS"
+    log "Pool-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${POOL_ADDR}"
+  else
+    POOL_ADDR="$(node_cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+    log "Neue Pool-Wallet-Adresse: ${POOL_ADDR}"
+  fi
+  sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
 fi
-sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
 
 # Verschlüsseln, falls noch nicht verschlüsselt -- empfohlen bevor echte
 # Auszahlungen laufen (siehe ppool-.env-Kommentar zu WALLET_PASSPHRASE):
@@ -1236,23 +1276,25 @@ encrypt_wallet_if_missing() {
   fi
 }
 
-encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
+[ "$INSTALL_POOL" = "true" ] && encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
 
-log "Lege Faucet-Wallet an ..."
-create_wallet_if_missing "$FAUCET_WALLET_NAME"
-encrypt_wallet_if_missing "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE"
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  log "Lege Faucet-Wallet an ..."
+  create_wallet_if_missing "$FAUCET_WALLET_NAME"
+  encrypt_wallet_if_missing "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE"
 
-if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
-  FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
-  log "Faucet-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${FAUCET_ADDR}"
-else
-  FAUCET_ADDR="$(node_cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
-  log "Neue Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
+  if [ -n "$EXISTING_FAUCET_SENDER_ADDR" ]; then
+    FAUCET_ADDR="$EXISTING_FAUCET_SENDER_ADDR"
+    log "Faucet-Wallet-Adresse aus vorherigem Lauf wiederverwendet: ${FAUCET_ADDR}"
+  else
+    FAUCET_ADDR="$(node_cli -rpcwallet="$FAUCET_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
+    log "Neue Faucet-Wallet-Adresse: ${FAUCET_ADDR}"
+  fi
+  sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
 fi
-sed -i "s#^FAUCET_SENDER_ADDR=.*#FAUCET_SENDER_ADDR=${FAUCET_ADDR}#" elektron-net-faucet/.env
 
 # ============================================================================
-# 10b. Wallet-Backups -- vollständiger Private-Key-Export (einmalig)
+# 10a. Wallet-Backups -- vollständiger Private-Key-Export (einmalig)
 # ============================================================================
 # "Komplettes Backup" heißt hier: nicht nur die Passphrase (siehe oben),
 # sondern die tatsächlichen privaten Schlüssel der Pool-/Faucet-Wallet.
@@ -1298,11 +1340,37 @@ export_wallet_backup() {
   node_cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
 }
 
-export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WALLET_DUMP_HOST"   "/data/pool-wallet-privkeys-backup.txt"
-export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
+[ "$INSTALL_POOL" = "true" ]   && export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WALLET_DUMP_HOST"   "/data/pool-wallet-privkeys-backup.txt"
+[ "$INSTALL_FAUCET" = "true" ] && export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
 
 # ============================================================================
-# 10b. Seeder deaktivieren, falls INSTALL_SEEDER (wieder) auf false steht
+# 10c. Pool deaktivieren, falls INSTALL_POOL (wieder) auf false steht
+# ============================================================================
+if [ "$INSTALL_POOL" != "true" ]; then
+  for svc in elektron-ppool-ui elektron-ppool; do
+    if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
+      log "INSTALL_POOL=false -- stoppe und entferne ${svc} (Daten in data/ppool-DB/ bleiben erhalten) ..."
+      docker compose stop "$svc" 2>/dev/null || true
+      docker compose rm -f "$svc" 2>/dev/null || true
+    fi
+  done
+fi
+
+# ============================================================================
+# 10d. Faucet deaktivieren, falls INSTALL_FAUCET (wieder) auf false steht
+# ============================================================================
+if [ "$INSTALL_FAUCET" != "true" ]; then
+  for svc in elektron-faucet-app elektron-faucet-db; do
+    if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
+      log "INSTALL_FAUCET=false -- stoppe und entferne ${svc} (Daten in data/faucet-db/ und data/faucet-config/ bleiben erhalten) ..."
+      docker compose stop "$svc" 2>/dev/null || true
+      docker compose rm -f "$svc" 2>/dev/null || true
+    fi
+  done
+fi
+
+# ============================================================================
+# 10e. Seeder deaktivieren, falls INSTALL_SEEDER (wieder) auf false steht
 # ============================================================================
 # Ein deaktiviertes Compose-Profil stoppt von sich aus keinen bereits
 # laufenden Container -- ohne dieses Teardown wäre INSTALL_SEEDER=false
@@ -1316,7 +1384,7 @@ if [ "$INSTALL_SEEDER" != "true" ]; then
 fi
 
 # ============================================================================
-# 10c. Mempool-Explorer deaktivieren, falls INSTALL_MEMPOOL (wieder) auf false steht
+# 10f. Mempool-Explorer deaktivieren, falls INSTALL_MEMPOOL (wieder) auf false steht
 # ============================================================================
 if [ "$INSTALL_MEMPOOL" != "true" ]; then
   # elektron-electrs gehört zum Explorer (gleiches Profil) und wird mit
@@ -1335,6 +1403,15 @@ fi
 # 11. Rest des Stacks hochfahren
 # ============================================================================
 COMPOSE_PROFILE_ARGS=""
+BASE_SERVICES_LABEL="caddy"
+if [ "$INSTALL_POOL" = "true" ]; then
+  COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile pool"
+  BASE_SERVICES_LABEL="${BASE_SERVICES_LABEL}, ppool + ppool-ui"
+fi
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile faucet"
+  BASE_SERVICES_LABEL="${BASE_SERVICES_LABEL}, faucet"
+fi
 EXTRA_SERVICES_LABEL=""
 if [ "$INSTALL_SEEDER" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile seeder"
@@ -1344,7 +1421,7 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile mempool"
   EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
-log "Baue und starte den restlichen Stack (ppool, ppool-ui, faucet, caddy${EXTRA_SERVICES_LABEL}) ..."
+log "Baue und starte den restlichen Stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
 # ============================================================================
@@ -1373,7 +1450,12 @@ if command -v ufw >/dev/null 2>&1; then
       sed -i 's/^IPV6=no/IPV6=yes/' /etc/default/ufw
     fi
     ufw allow 8333/tcp comment 'Elektron P2P seed' || true
-    ufw allow 3333/tcp comment 'Elektron PPLNS Stratum' || true
+    if [ "$INSTALL_POOL" = "true" ]; then
+      ufw allow 3333/tcp comment 'Elektron PPLNS Stratum' || true
+    else
+      # Symmetrisch wieder schließen, falls aus einem vorherigen Lauf offen.
+      ufw delete allow 3333/tcp 2>/dev/null || true
+    fi
     ufw allow 80/tcp  || true
     ufw allow 443/tcp || true
     if [ "$INSTALL_SEEDER" = "true" ]; then
@@ -1394,12 +1476,13 @@ if command -v ufw >/dev/null 2>&1; then
     fi
     ufw reload || true
   else
-    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp 3333/tcp 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
+    warn "FIREWALL_AUTO_CONFIGURE=false -- bitte manuell öffnen: ufw allow 8333/tcp$( [ "$INSTALL_POOL" = "true" ] && echo ' 3333/tcp' ) 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
   fi
 else
-  warn "ufw nicht gefunden -- Ports 8333, 3333, 80, 443$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manuell im Hetzner Cloud Firewall öffnen."
+  warn "ufw nicht gefunden -- Ports 8333, 80, 443$( [ "$INSTALL_POOL" = "true" ] && echo ', 3333' )$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manuell im Hetzner Cloud Firewall öffnen."
 fi
-FIREWALL_PORT_COUNT=4
+FIREWALL_PORT_COUNT=3
+[ "$INSTALL_POOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
 [ "$INSTALL_SEEDER" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
 [ "$INSTALL_MEMPOOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 2))
 warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben ${FIREWALL_PORT_COUNT} Ports öffnen -- dort für IPv4 UND IPv6 getrennt aktivieren, ufw allein reicht bei Cloud-Firewalls nicht."
@@ -1411,6 +1494,28 @@ warn "Zusätzlich im Hetzner Cloud-Firewall-Panel (Tab 'Firewalls') dieselben ${
 # ============================================================================
 SUMMARY_FILE="${STACK_DIR}/ZUGANGSDATEN.txt"
 GENERATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+
+# Für den "encryptwallet ist ein Einwegvorgang"-Hinweis unten: Namen, Verb
+# und .env-Verweise je nachdem, welche der beiden Wallets tatsächlich
+# installiert sind -- als eigene Variablen vorberechnet statt verschachtelter
+# Command-Substitution direkt im Text, um Text-/Grammatikfehler zu vermeiden.
+INSTALLED_WALLETS_LABEL=""
+INSTALLED_WALLETS_VERB="ist"
+INSTALLED_WALLET_ENV_REFS=""
+if [ "$INSTALL_POOL" = "true" ]; then
+  INSTALLED_WALLETS_LABEL="die Pool-Wallet"
+  INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} und in ${STACK_DIR}/elektron-net-ppool/.env (Feld WALLET_PASSPHRASE)"
+fi
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  if [ -n "$INSTALLED_WALLETS_LABEL" ]; then
+    INSTALLED_WALLETS_LABEL="${INSTALLED_WALLETS_LABEL} UND die Faucet-Wallet"
+    INSTALLED_WALLETS_VERB="sind"
+    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} bzw. in ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS)"
+  else
+    INSTALLED_WALLETS_LABEL="die Faucet-Wallet"
+    INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} und in ${STACK_DIR}/elektron-net-faucet/.env (Feld FAUCET_WALLET_PASS)"
+  fi
+fi
 
 # Jede Wallet bleibt ihre eigene, separat schützbare Datei (chmod 600) --
 # hier wird für die Übersicht nur AUFGELISTET, was in external-wallets/
@@ -1454,11 +1559,14 @@ cat <<SUMMARY
  Node (P2P-Seed):     ${NODE_DOMAIN}:8333
  Server IPv4:          ${SERVER_IP}
  Server IPv6 (erkannt/verwendet): ${SERVER_IPV6}
- Pool Dashboard:       https://${POOL_DOMAIN}
- Faucet:               https://${FAUCET_DOMAIN}
+ Pool Dashboard (PPLNS-Mining-Pool, optional):$( [ "$INSTALL_POOL" = "true" ] && echo " aktiv -- https://${POOL_DOMAIN}" || echo " nicht installiert (INSTALL_POOL=true zum Aktivieren)" )
+ Faucet (optional):$( [ "$INSTALL_FAUCET" = "true" ] && echo " aktiv -- https://${FAUCET_DOMAIN}" || echo " nicht installiert (INSTALL_FAUCET=true zum Aktivieren)" )
+$( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_ADMIN_SUMMARY
  Faucet Admin:          https://${FAUCET_DOMAIN}/admin.php
    User:     ${FAUCET_ADMIN_USER}
    Passwort: ${FAUCET_ADMIN_PASS}
+FAUCET_ADMIN_SUMMARY
+)
 
  Seeder (DNS-Crawler, optional):$( [ "$INSTALL_SEEDER" = "true" ] && echo " aktiv -- ${SEEDER_HOST} (NS: ${SEEDER_NS})" || echo " nicht installiert (INSTALL_SEEDER=true zum Aktivieren)" )
 $( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_SUMMARY
@@ -1482,31 +1590,40 @@ $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
 MEMPOOL_SUMMARY
 )
 
- Pool-Wallet-Adresse:   ${POOL_ADDR}
- Faucet-Wallet-Adresse: ${FAUCET_ADDR}
+ Pool-Wallet-Adresse:   $( [ "$INSTALL_POOL" = "true" ] && echo "${POOL_ADDR}" || echo "(Pool nicht installiert)" )
+ Faucet-Wallet-Adresse: $( [ "$INSTALL_FAUCET" = "true" ] && echo "${FAUCET_ADDR}" || echo "(Faucet nicht installiert)" )
 
- Vollständiger Private-Key-Export dieser beiden Wallets (Legacy-Dump oder
- Descriptor-Fallback, je nachdem was unterstützt wurde):
-   ${POOL_WALLET_DUMP_HOST}
-   ${FAUCET_WALLET_DUMP_HOST}
+$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_DUMP_SUMMARY
+ Vollständiger Private-Key-Export der installierten Wallets (Legacy-Dump
+ oder Descriptor-Fallback, je nachdem was unterstützt wurde):
+$( [ "$INSTALL_POOL" = "true" ] && echo "   ${POOL_WALLET_DUMP_HOST}" )
+$( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${FAUCET_WALLET_DUMP_HOST}" )
  (chmod 600, einmalig beim ersten Anlegen erzeugt -- wird bei Reruns nicht
  überschrieben. Das ist die eigentliche Wiederherstellungs-Grundlage für
  den Fall, dass der Server verloren geht; die Passphrase oben allein reicht
  dafür NICHT, die entsperrt nur eine bereits vorhandene Wallet-Datei.)
+WALLET_DUMP_SUMMARY
+)
 
  ----------------------------------------------------------------------------
  ALLE ZUGANGSDATEN AUF EINEN BLICK:
 
    RPC-Benutzer (Node):          ${RPC_USER}
    RPC-Passwort (Node):          ${RPC_PASSWORD}
+$( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_CREDS
    Pool JWT_SECRET:              ${JWT_SECRET}
    Pool-Wallet-Passphrase:       ${POOL_WALLET_PASSPHRASE}
+POOL_CREDS
+)
+$( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_CREDS
    Faucet-DB-Passwort:           ${FAUCET_DB_PASS}
    Faucet-DB-Root-Passwort:      ${FAUCET_DB_ROOT_PASS}
    Faucet-Admin-Passwort:        ${FAUCET_ADMIN_PASS}
    Faucet-Wallet-Passphrase:     ${FAUCET_WALLET_PASSPHRASE}
    hCaptcha Site-Key:            ${FAUCET_HCAPTCHA_SITE:-"(nicht gesetzt)"}
    hCaptcha Secret-Key:          ${FAUCET_HCAPTCHA_SECRET:-"(nicht gesetzt)"}
+FAUCET_CREDS
+)
 $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_CREDS
    Mempool-DB-Passwort:          ${MEMPOOL_DB_PASS}
    Mempool-DB-Root-Passwort:     ${MEMPOOL_DB_ROOT_PASS}
@@ -1521,30 +1638,40 @@ MEMPOOL_CREDS
  ----------------------------------------------------------------------------
 
  NÄCHSTE SCHRITTE:
- 1. Beide Adressen oben von deinem Prepaid-Bestand aus mit ELEK befüllen
-    (Hot Wallet klein halten).
- 2. https://${FAUCET_DOMAIN}/admin.php -> Settings -> "Test RPC connection"
-    und "Test wallet unlock" grün bekommen.
- 3. public/install.php im Faucet löschen:
-    docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-faucet-app rm -f public/install.php
- 4. elektron-net-ppool/.env: PAYOUT_DRY_RUN=true lassen, bis eine simulierte
-    Auszahlung im Log geprüft wurde, dann auf false stellen und
-    'docker compose up -d --force-recreate elektron-ppool' ausführen.
- 5. hCaptcha-Keys nachtragen, falls beim Ausführen leer gelassen.
- 6. Falls noch nicht geschehen: AAAA-Records bei world4you anlegen
-    (${NODE_DOMAIN}, ${POOL_DOMAIN}, ${FAUCET_DOMAIN} -> ${SERVER_IPV6}).
-    P2P (8333), Stratum (3333) und Caddy (80/443) sind bereits Dual-Stack
-    published -- sobald AAAA existiert, funktioniert alles auch über IPv6.
- 7. Optional, aber für einen öffentlichen Seed-Node empfehlenswert: Reverse
-    DNS (PTR) für ${SERVER_IPV6} im Hetzner-Panel setzen (Networking -> bei
-    der IPv6-Zeile die "..." -> Reverse DNS, zeigte bei dir "0 Einträge"),
-    z.B. auf ${NODE_DOMAIN} -- viele Peers werten das bei der Node-Reputation
-    positiv.
+$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<PREPAID_NEXT
+ - Wallet-Adresse(n) oben von deinem Prepaid-Bestand aus mit ELEK befüllen
+   (Hot Wallet klein halten).
+PREPAID_NEXT
+)
+$( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_NEXT
+ - https://${FAUCET_DOMAIN}/admin.php -> Settings -> "Test RPC connection"
+   und "Test wallet unlock" grün bekommen.
+ - public/install.php im Faucet löschen:
+   docker compose -f ${STACK_DIR}/docker-compose.yml exec elektron-faucet-app rm -f public/install.php
+ - hCaptcha-Keys nachtragen, falls beim Ausführen leer gelassen.
+FAUCET_NEXT
+)
+$( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_NEXT
+ - elektron-net-ppool/.env: PAYOUT_DRY_RUN=true lassen, bis eine simulierte
+   Auszahlung im Log geprüft wurde, dann auf false stellen und
+   'docker compose --profile pool up -d --force-recreate elektron-ppool' ausführen.
+POOL_NEXT
+)
+ - Falls noch nicht geschehen: AAAA-Records bei world4you anlegen
+   (${NODE_DOMAIN}$( [ "$INSTALL_POOL" = "true" ] && echo ", ${POOL_DOMAIN}" )$( [ "$INSTALL_FAUCET" = "true" ] && echo ", ${FAUCET_DOMAIN}" ) -> ${SERVER_IPV6}).
+   P2P (8333)$( [ "$INSTALL_POOL" = "true" ] && echo ", Stratum (3333)" ) und Caddy (80/443) sind bereits
+   Dual-Stack published -- sobald AAAA existiert, funktioniert alles auch
+   über IPv6.
+ - Optional, aber für einen öffentlichen Seed-Node empfehlenswert: Reverse
+   DNS (PTR) für ${SERVER_IPV6} im Hetzner-Panel setzen (Networking -> bei
+   der IPv6-Zeile die "..." -> Reverse DNS, zeigte bei dir "0 Einträge"),
+   z.B. auf ${NODE_DOMAIN} -- viele Peers werten das bei der Node-Reputation
+   positiv.
 $( [ "$INSTALL_SEEDER" = "true" ] && cat <<SEEDER_NEXT
- 8. Seeder testen, bevor du ihn produktiv verlinkst:
-    dig -t NS ${SEEDER_HOST}            (muss auf ${SEEDER_NS} zeigen)
-    dig @${SERVER_IP} -p 53 ${SEEDER_HOST}   (geht auch vor propagierter Delegation)
-    docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
+ - Seeder testen, bevor du ihn produktiv verlinkst:
+   dig -t NS ${SEEDER_HOST}            (muss auf ${SEEDER_NS} zeigen)
+   dig @${SERVER_IP} -p 53 ${SEEDER_HOST}   (geht auch vor propagierter Delegation)
+   docker compose -f ${STACK_DIR}/docker-compose.yml logs -f elektron-net-seeder
 SEEDER_NEXT
 )
 
@@ -1573,26 +1700,27 @@ SEEDER_NEXT
  Diese Zusammenfassung wird bei jedem (Re-)Lauf des Skripts hier neu
  geschrieben: ${SUMMARY_FILE}
  Die zugrundeliegenden Rohdaten stehen außerdem dauerhaft in:
-   ${STACK_DIR}/elektron-net-ppool/.env
-   ${STACK_DIR}/elektron-net-faucet/.env
+$( [ "$INSTALL_POOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-ppool/.env" )
+$( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${STACK_DIR}/elektron-net-faucet/.env" )
    ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth-Hash, nicht das Klartext-Passwort)
 $( [ "$INSTALL_MEMPOOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-mempool/.env" )
  (alle chmod 600, nicht committen.)
 
- WICHTIG: encryptwallet ist ein Einwegvorgang -- Pool- UND Faucet-Wallet
- sind mittlerweile beide verschlüsselt. Die Passphrasen oben stehen NUR in
- dieser Datei und in ${STACK_DIR}/elektron-net-ppool/.env (Feld
- WALLET_PASSPHRASE) bzw. ${STACK_DIR}/elektron-net-faucet/.env (Feld
- FAUCET_WALLET_PASS) -- plus im vollständigen Private-Key-Export weiter
- oben. Es gibt keine andere Kopie, auch nicht auf der Blockchain. Verlierst
- du alle diese Dateien, ist das jeweilige Wallet-Guthaben nicht mehr
- ausgebbar.
+$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_WARNING
+ WICHTIG: encryptwallet ist ein Einwegvorgang -- ${INSTALLED_WALLETS_LABEL} ${INSTALLED_WALLETS_VERB} mittlerweile verschlüsselt. Die Passphrasen oben stehen NUR in dieser Datei${INSTALLED_WALLET_ENV_REFS} -- plus im vollständigen Private-Key-Export weiter oben. Es gibt keine
+ andere Kopie, auch nicht auf der Blockchain. Verlierst du eine dieser
+ Dateien, ist das jeweilige Wallet-Guthaben nicht mehr ausgebbar.
+WALLET_WARNING
+)
 
+$( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_APP_KEY_NOTE
  Weiterer wichtiger Ort: der Faucet-App generiert beim allerersten Start
  selbst einen Verschlüsselungs-Key für Daten "at rest" (FAUCET_APP_KEY) und
  schreibt ihn NUR nach ${STACK_DIR}/data/faucet-config/config.php -- steht
  in keiner .env und wird von diesem Skript nicht verwaltet, gehört aber zum
  selben Bedrohungsmodell wie alles andere hier (mit sichern, chmod 600).
+FAUCET_APP_KEY_NOTE
+)
 
  ----------------------------------------------------------------------------
  EXTERNE / SELBST ERZEUGTE WALLETS
