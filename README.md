@@ -30,7 +30,7 @@ unless you supply your own. The only manual parts are the **DNS records
 in one pass.
 
 **All credentials end up collected in one file on the server:**
-`$STACK_DIR/ZUGANGSDATEN.txt` (default: `/opt/elektron-net-stack/ZUGANGSDATEN.txt`),
+`$STACK_DIR/CREDENTIALS.txt` (default: `/opt/elektron-net-stack/CREDENTIALS.txt`),
 automatically `chmod 600`. Contains RPC/DB/wallet passwords, JWT_SECRET,
 faucet admin login, pool/faucet wallet addresses, domains/IPs and a
 command reference - rewritten on every (re-)run of the script, so you
@@ -71,13 +71,13 @@ to `$STACK_DIR/data/faucet-config/config.php` - it lives in no `.env`
 file, but gets backed up along with everything else if you include
 `data/` in your backups.
 
-`ZUGANGSDATEN.txt` itself does **not** duplicate these wallet files - it
+`CREDENTIALS.txt` itself does **not** duplicate these wallet files - it
 only lists filename and path as a reference, so each wallet secret lives
 in exactly one place instead of lying around in plaintext multiple
 times. RPC/DB/JWT/faucet-admin passwords, on the other hand, sit directly
-in `ZUGANGSDATEN.txt`, since there is no separate wallet file for those.
+in `CREDENTIALS.txt`, since there is no separate wallet file for those.
 
-Even so, `ZUGANGSDATEN.txt` remains the central, sensitive overview file
+Even so, `CREDENTIALS.txt` remains the central, sensitive overview file
 of the stack. Back it up offline once (SFTP/SCP) - ideally together with
 the referenced wallet files - then keep it locked down on the server,
 never send it by plaintext email or upload it anywhere.
@@ -1051,7 +1051,7 @@ only rebuild afterward.
 - `node.example.com` intentionally gets no Caddy block - that's the
   plain P2P seed, not a web service.
 - If you use `install-elektron-stack.sh`, there's additionally a bundled
-  overview of all credentials in `$STACK_DIR/ZUGANGSDATEN.txt` (`chmod
+  overview of all credentials in `$STACK_DIR/CREDENTIALS.txt` (`chmod
   600`, updated on every run), including the complete private-key
   exports of the pool/faucet wallet
   (`data/elektron-net/*-wallet-privkeys-backup.txt`) and everything in
