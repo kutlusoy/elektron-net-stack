@@ -589,9 +589,14 @@ panel for the exact value):
 | `pool.example.com` | AAAA | 2001:db8::1 |
 | `faucet.example.com` | A | 203.0.113.10 |
 | `faucet.example.com` | AAAA | 2001:db8::1 |
+| `mempool.example.com` (only if `INSTALL_MEMPOOL=true`, default) | A | 203.0.113.10 |
+| `mempool.example.com` (only if `INSTALL_MEMPOOL=true`, default) | AAAA | 2001:db8::1 |
 
 Create these at whichever DNS provider hosts your domain, as a plain
 A record for the subdomain (e.g. `faucet`), with a matching AAAA record.
+Skip the `mempool` records if you set `INSTALL_MEMPOOL=false` (see
+["Mempool Explorer (optional)"](#mempool-explorer-optional)); likewise
+skip `pool` if `INSTALL_POOL=false` and `faucet` if `INSTALL_FAUCET=false`.
 
 Briefly wait/check: `dig +short pool.example.com` and
 `dig +short AAAA pool.example.com` should each return the right IP
@@ -791,11 +796,15 @@ configuration at the end of the run.
 
 ## 8. Verify
 
-- `https://pool.example.com` -> pool dashboard
+- `https://pool.example.com` -> pool dashboard (only if `INSTALL_POOL=true`)
 - `https://faucet.example.com` -> faucet, log into `/admin.php` with
   `FAUCET_ADMIN_USER`/`FAUCET_ADMIN_PASS`, click **Test RPC
-  connection** and **Test wallet unlock** there
+  connection** and **Test wallet unlock** there (only if `INSTALL_FAUCET=true`)
+- `https://mempool.example.com` -> block explorer (only if `INSTALL_MEMPOOL=true`,
+  the default; give electrs a few minutes after the first install to finish
+  indexing before address lookups work)
 - Have a miner connect to `stratum+tcp://pool.example.com:3333` as a test
+  (only if `INSTALL_POOL=true`)
 - `elektron-net-ppool/.env`: keep `PAYOUT_DRY_RUN=true` until you've
   checked the first simulated payout in the logs (see the ppool README,
   "Verification before going live") - only then switch it to `false`
