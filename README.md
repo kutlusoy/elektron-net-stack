@@ -323,6 +323,7 @@ kurz zusammengefasst:
 | Faucet-Business | `FAUCET_HCAPTCHA_SITE`/`_SECRET`, `FAUCET_TITLE`, `FAUCET_MESSAGE`, `FAUCET_AMOUNT_ELEK`, `FAUCET_DAILY_BUDGET`, `FAUCET_HOURLY_BUDGET`, `FAUCET_PER_ADDR_COOLDOWN_H`, `FAUCET_PER_IP_COOLDOWN_H`, `FAUCET_DEFAULT_LANG`, `FAUCET_EXPLORER_URL` |
 | Secrets (immer auto, wenn leer) | `JWT_SECRET`, RPC-Passwort (kein Feld dafür -- immer generiert) |
 | Seeder (optional, Default aus) | `INSTALL_SEEDER` (Default `false`), `SEEDER_HOST`, `SEEDER_NS`, `SEEDER_MBOX`, `SEEDER_DNS_PORT`, `SEEDER_THREADS`, `SEEDER_DNS_THREADS` -- siehe [„Seeder (optional, Testphase)"](#seeder-optional-testphase) |
+| Mempool Explorer (optional, Default an) | `INSTALL_MEMPOOL` (Default `true`), `MEMPOOL_DOMAIN`, `MEMPOOL_DB_NAME`, `MEMPOOL_DB_USER`, `MEMPOOL_DB_PASS`/`MEMPOOL_DB_ROOT_PASS` (leer = auto), `MEMPOOL_INDEXING_BLOCKS_AMOUNT`, `MEMPOOL_ACCELERATOR` (Default `true`, siehe [„Mempool Explorer (optional)"](#mempool-explorer-optional)) |
 
 Felder, die das Skript automatisch nach der Wallet-Erstellung einträgt
 (`POOL_WALLET_ADDRESS`, `FAUCET_SENDER_ADDR`), gehören **nicht** in
@@ -930,6 +931,24 @@ Electrum-Wallet-Clients; Konfiguration wird vom Installer nach
 RPC-Zugangsdaten ausschließlich per Config-Datei). Alle vier teilen das
 Compose-Profil `mempool` und werden gemeinsam installiert, gestartet und
 entfernt.
+
+### Accelerator (Menü + Boost-Button)
+
+Standardmäßig **aktiv** (`MEMPOOL_ACCELERATOR=true`): schaltet im Explorer-
+Frontend den "Acceleration"-Menüpunkt (Dashboard) sowie den "Boost"-Button
+auf der Transaktionsseite frei. Beide sind reine Frontend-Flags
+(`ACCELERATOR`/`ACCELERATOR_BUTTON` im generierten
+`elektron-net-mempool/.env`) und verlinken auf mempool.space's eigenen,
+zentralen Fee-Beschleunigungsdienst -- es handelt sich um eine rein
+ausgehende HTTPS-Anfrage an `SERVICES_API`, es wird **kein zusätzlicher
+Port** geöffnet und keine Firewall-Regel gebraucht. Zum Deaktivieren:
+
+```ini
+MEMPOOL_ACCELERATOR=false
+```
+
+danach `./install-elektron-stack.sh --yes` (bzw. erneut interaktiv laufen
+lassen) und `docker compose up -d --force-recreate elektron-mempool-web`.
 
 ### Deaktivieren
 

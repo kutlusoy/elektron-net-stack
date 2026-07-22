@@ -145,6 +145,7 @@ MEMPOOL_DB_USER="mempool"
 MEMPOOL_DB_PASS=""
 MEMPOOL_DB_ROOT_PASS=""
 MEMPOOL_INDEXING_BLOCKS_AMOUNT="1000"         # small positive window -- see elektron-net-mempool/docker-compose.yml comment for why (no -txindex, and never 0)
+MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-page "Boost" button in the explorer frontend; both just link out to mempool.space's own accelerator service over outbound HTTPS, no inbound port/firewall change needed
 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
@@ -162,7 +163,7 @@ FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_A
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
 FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL
 INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS SEEDER_MIN_HEIGHT
-INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS MEMPOOL_DB_ROOT_PASS MEMPOOL_INDEXING_BLOCKS_AMOUNT"
+INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS MEMPOOL_DB_ROOT_PASS MEMPOOL_INDEXING_BLOCKS_AMOUNT MEMPOOL_ACCELERATOR"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -286,6 +287,7 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   ask_yes_no INSTALL_MEMPOOL "Mempool-Explorer (Block-Explorer/Visualizer, wie mempool.space) zusätzlich installieren?"
   if [ "$INSTALL_MEMPOOL" = "true" ]; then
     ask MEMPOOL_DOMAIN "Domain für den Mempool-Explorer"
+    ask_yes_no MEMPOOL_ACCELERATOR "Accelerator-Menü/Boost-Button im Explorer aktivieren (verlinkt auf mempool.space's Fee-Beschleunigungsdienst, rein ausgehende Anfrage, keine neue Portfreigabe)?"
   fi
 else
   log "Nicht-interaktiver Modus (--yes oder kein Terminal) -- verwende Defaults/Config-Datei ohne Rückfrage."
@@ -1098,7 +1100,13 @@ BACKEND_MAINNET_HTTP_HOST=elektron-mempool-api
 BACKEND_MAINNET_HTTP_PORT=8999
 MEMPOOL_WEBSITE_URL=https://${MEMPOOL_DOMAIN}
 HISTORICAL_PRICE=false
-ACCELERATOR_BUTTON=false
+# Menü-Icon ("Acceleration"-Dashboard) und der Boost-Button auf der TX-Seite
+# sind zwei getrennte Frontend-Flags (siehe
+# elektron-net-mempool/frontend/mempool-frontend-config.sample.json) -- hier
+# an denselben Schalter gekoppelt. Beide rufen nur ausgehend SERVICES_API
+# (mempool.space) per HTTPS auf, keine neue Portfreigabe nötig.
+ACCELERATOR=${MEMPOOL_ACCELERATOR}
+ACCELERATOR_BUTTON=${MEMPOOL_ACCELERATOR}
 SERVICES_API=
 ENV_EOF
 fi
@@ -1352,6 +1360,9 @@ docker builder prune -f --filter "until=24h" >/dev/null || true
 # ============================================================================
 # 12. Firewall
 # ============================================================================
+# Hinweis: MEMPOOL_ACCELERATOR braucht KEINE zusätzliche Portfreigabe --
+# Menü und Boost-Button rufen nur ausgehend mempool.space's öffentliche
+# Services-API (SERVICES_API) per HTTPS auf, kein neuer eingehender Port.
 if command -v ufw >/dev/null 2>&1; then
   if [ "$FIREWALL_AUTO_CONFIGURE" = "true" ]; then
     log "Konfiguriere ufw (IPv4 + IPv6) ..."
@@ -1467,6 +1478,7 @@ $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
    Electrum:  ${NODE_DOMAIN}:50001 (t, plain TCP) und :50002 (s -- ACHTUNG:
               trotz Portname ebenfalls nur plain TCP, kein echtes SSL/TLS,
               siehe docker-compose.yml-Kommentar bei elektron-electrs)
+   Accelerator: $( [ "$MEMPOOL_ACCELERATOR" = "true" ] && echo "aktiv -- Menü + Boost-Button, verlinkt auf mempool.space (keine eigene Portfreigabe nötig)" || echo "aus (MEMPOOL_ACCELERATOR=true zum Aktivieren)" )
 MEMPOOL_SUMMARY
 )
 

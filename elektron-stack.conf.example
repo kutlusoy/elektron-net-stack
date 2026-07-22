@@ -127,3 +127,10 @@ MEMPOOL_DB_ROOT_PASS=
 # ohne -txindex: Backfill alter Blöcke braucht pro Block einen vollen
 # Block-Datei-Zugriff -- klein halten, siehe elektron-net-mempool/docker-compose.yml
 MEMPOOL_INDEXING_BLOCKS_AMOUNT=1000
+# true = "Acceleration"-Menüpunkt (Dashboard) UND "Boost"-Button auf der
+# TX-Seite im Explorer-Frontend aktivieren. Beide verlinken nur auf
+# mempool.space's eigenen (kostenpflichtigen) Fee-Beschleunigungsdienst --
+# reine ausgehende HTTPS-Anfrage an SERVICES_API, braucht KEINE zusätzliche
+# Portfreigabe/Firewall-Regel. false = Menüpunkt und Button bleiben
+# ausgeblendet, wie im Original-Mempool-Frontend ohne diese Flags.
+MEMPOOL_ACCELERATOR=true
