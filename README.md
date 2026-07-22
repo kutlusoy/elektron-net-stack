@@ -201,7 +201,11 @@ shown at the bottom of `nano`'s footer (`^` means Ctrl):
 | `Ctrl+W` | Search |
 
 Fill in at least these values (everything else can stay at its default,
-see `elektron-stack.conf.example` for every field with an explanation):
+see `elektron-stack.conf.example` for every field with an explanation).
+Only set the domain for a component if you're actually installing it
+(all four of Pool/Faucet/Mempool default to installed except Seeder, see
+["Pre-filling values locally and uploading via SFTP"](#pre-filling-values-locally-and-uploading-via-sftp)
+below for the full `INSTALL_*` toggles):
 
 ```ini
 GITHUB_USER=kutlusoy
@@ -210,6 +214,7 @@ SERVER_IPV6=YOUR_SERVER_IPV6
 NODE_DOMAIN=node.example.com
 POOL_DOMAIN=pool.example.com
 FAUCET_DOMAIN=faucet.example.com
+MEMPOOL_DOMAIN=mempool.example.com
 CADDY_EMAIL=you@example.com
 FAUCET_HCAPTCHA_SITE=your-hcaptcha-site-key
 FAUCET_HCAPTCHA_SECRET=your-hcaptcha-secret-key
