@@ -99,6 +99,12 @@ FAUCET_DEFAULT_LANG=de
 # Optional -- Block-Explorer-Link, der nach einem erfolgreichen Claim
 # angezeigt wird (z. B. https://explorer.example.com):
 FAUCET_EXPLORER_URL=
+# Minuten zwischen zwei Prüfungen, ob eigene Faucet-Auszahlungen noch
+# unbestätigt im Mempool hängen, weil die aktuelle Mindestgebühr des Node
+# (mempoolminfee) inzwischen über der ursprünglich gezahlten liegt -- wird
+# dann per RBF auf eine höhere Gebühr angehoben. Auch später jederzeit ohne
+# Neustart im Admin-Panel unter "Mempool & Fee-Bumping" änderbar:
+FAUCET_FEE_BUMP_INTERVAL_MIN=10
 
 # --- Seeder (elektron-net-seeder) -- OPTIONAL, noch in Testphase ---
 # true = zusätzlich klonen/bauen/starten (Compose-Profil "seeder"). Braucht
