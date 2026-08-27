@@ -80,7 +80,13 @@ POOL_WALLET_NAME="pool"                       # wallet name on the node for pool
 # run, then re-locks it immediately (see wallet-rpc.service.ts).
 POOL_WALLET_PASSPHRASE=""
 WALLET_UNLOCK_SECONDS="60"
-POOL_IDENTIFIER="Elektron-PPLNS-Pool"
+POOL_IDENTIFIER="Elektron PPLNS Pool"
+# Optional. Embedded on-chain as a dedicated OP_RETURN output in every block
+# this pool finds, alongside POOL_IDENTIFIER (see elektron-net-ppool
+# doc-elektron/guideline-pool-identity-op-return.md) -- leave empty to skip
+# that output entirely. Auto-gets "https://" prefixed if you enter a bare
+# domain (either here or at the prompt below).
+POOL_URL="https://pplns.elektron-net.org"
 POOL_FEE_PERCENT="1.0"
 PPLNS_WINDOW_MINUTES="90"
 MIN_PAYOUT_THRESHOLD_SATS="100000"
@@ -157,7 +163,7 @@ MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-
 CONFIG_VARS="STACK_DIR GITHUB_USER AUTO_UPDATE_REPOS SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
 FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE INSTALL_POOL POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
-POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
+POOL_IDENTIFIER POOL_URL POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
 API_PORT JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_BOT_USERNAME DISCORD_BOT_TOKEN
 DISCORD_BOT_CLIENTID DISCORD_BOT_GUILD_ID DISCORD_BOT_CHANNEL_ID
@@ -281,6 +287,8 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   ask_yes_no INSTALL_POOL "Install the PPLNS mining pool (elektron-net-ppool + dashboard)?"
   if [ "$INSTALL_POOL" = "true" ]; then
     ask POOL_DOMAIN "Domain for the pool dashboard"
+    ask POOL_IDENTIFIER "Pool name shown on-chain in every found block and in the dashboard"
+    ask POOL_URL "Pool URL shown on-chain in every found block and in the dashboard (blank to skip)"
   fi
   ask_yes_no INSTALL_FAUCET "Install the faucet (elektron-net-faucet)?"
   if [ "$INSTALL_FAUCET" = "true" ]; then
@@ -301,6 +309,16 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   fi
 else
   log "Non-interactive mode (--yes or no terminal) -- using defaults/config file without prompting."
+fi
+
+# POOL_URL needs a scheme to work as a clickable link in the pool dashboard
+# and to be a well-formed URL once embedded on-chain -- add one if whoever
+# set it (config file or the prompt above) left it as a bare domain.
+if [ -n "$POOL_URL" ]; then
+  case "$POOL_URL" in
+    http://*|https://*) ;;
+    *) POOL_URL="https://${POOL_URL}" ;;
+  esac
 fi
 
 # ============================================================================
@@ -976,6 +994,7 @@ DIFFICULTY_CHECK_INTERVAL_MS=60000
 NETWORK=mainnet
 API_SECURE=false
 POOL_IDENTIFIER="${POOL_IDENTIFIER}"
+POOL_URL=${POOL_URL}
 
 HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
 HOBBY_MINER_DIFFICULTY=0.001

@@ -328,7 +328,7 @@ What you can pre-set in `elektron-stack.conf` - the complete list is in
 | Node/firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
 | Repo updates | `AUTO_UPDATE_REPOS` (blank/`false` = never auto-update, see "Updating the stack") |
 | Pool (optional, on by default) | `INSTALL_POOL` (default `true`, Compose profile "pool"; disabling it also closes Stratum port 3333 again) |
-| Pool behavior | `POOL_IDENTIFIER`, `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
+| Pool behavior | `POOL_IDENTIFIER`, `POOL_URL` (optional, both shown on-chain in every found block, see ["Pool identity (on-chain)"](#pool-identity-on-chain)), `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN`, `STRATUM_PORT`, `API_PORT` |
 | Pool wallet | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (blank = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool notifications (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
 | Faucet (optional, on by default) | `INSTALL_FAUCET` (default `true`, Compose profile "faucet"; no port of its own, runs behind Caddy) |
@@ -813,6 +813,26 @@ configuration at the end of the run.
 - `elektron-net-ppool/.env`: keep `PAYOUT_DRY_RUN=true` until you've
   checked the first simulated payout in the logs (see the ppool README,
   "Verification before going live") - only then switch it to `false`
+
+## Pool identity (on-chain)
+
+`POOL_IDENTIFIER` (pool name) and `POOL_URL` (pool website, optional) get
+embedded on-chain as two dedicated, zero-value `OP_RETURN` outputs in every
+block this pool finds - alongside the UTXO attestation and witness
+commitment, never replacing or affecting either. Both are shown on the pool
+dashboard's splash page too. See `elektron-net-ppool`'s
+`doc-elektron/guideline-pool-identity-op-return.md` for exactly how this
+works and why it can't interfere with block validation.
+
+- Both fields are optional and independent - leave `POOL_URL` blank to skip
+  that output entirely; `POOL_IDENTIFIER` falls back to the built-in
+  default ("Elektron PPLNS Pool") if left blank.
+- A bare domain entered for `POOL_URL` (no `http://`/`https://`) gets
+  `https://` prefixed automatically by the install script, so it works as
+  a clickable link on the dashboard.
+- Prompted interactively during install (and any rerun) right after the
+  pool dashboard domain; pre-fillable via `elektron-stack.conf` like every
+  other setting (see the table above).
 
 ## Seeder (optional, testing phase)
 

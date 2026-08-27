@@ -49,7 +49,13 @@ POOL_WALLET_NAME=pool
 # gesetzt wird:
 POOL_WALLET_PASSPHRASE=
 WALLET_UNLOCK_SECONDS=60
-POOL_IDENTIFIER=Elektron-PPLNS-Pool
+POOL_IDENTIFIER=Elektron PPLNS Pool
+# Optional -- embedded on-chain as a dedicated OP_RETURN output in every
+# block this pool finds, alongside POOL_IDENTIFIER (see elektron-net-ppool
+# doc-elektron/guideline-pool-identity-op-return.md). Leave empty to skip
+# that output entirely. A bare domain (no http(s)://) gets "https://"
+# prefixed automatically by the install script.
+POOL_URL=https://pplns.elektron-net.org
 POOL_FEE_PERCENT=1.0
 PPLNS_WINDOW_MINUTES=90
 MIN_PAYOUT_THRESHOLD_SATS=100000
