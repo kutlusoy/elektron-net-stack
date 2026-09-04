@@ -1,36 +1,37 @@
-# Elektron Net Stack -- Konfigurationsdatei für install-elektron-stack.sh
+# Elektron Net Stack -- config file for install-elektron-stack.sh
 #
-# So verwenden:
-#   1. Diese Datei kopieren:  cp elektron-stack.conf.example elektron-stack.conf
-#   2. In elektron-stack.conf deine echten Werte eintragen (siehe unten).
-#   3. Datei neben install-elektron-stack.sh auf den Server legen (z. B. per
-#      scp hochladen, oder im Hetzner-Console-Editor direkt anlegen).
+# How to use:
+#   1. Copy this file:  cp elektron-stack.conf.example elektron-stack.conf
+#   2. Fill in your real values in elektron-stack.conf (see below).
+#   3. Place the file next to install-elektron-stack.sh on the server
+#      (e.g. upload via scp, or create it directly in your provider's
+#      console editor).
 #   4. ./install-elektron-stack.sh
-#      (elektron-stack.conf wird automatisch gefunden, sofern sie im
-#      selben Verzeichnis wie das Skript liegt -- oder explizit angeben:
-#      ./install-elektron-stack.sh --config /pfad/zu/elektron-stack.conf)
+#      (elektron-stack.conf is found automatically as long as it sits in
+#      the same directory as the script -- or point at it explicitly:
+#      ./install-elektron-stack.sh --config /path/to/elektron-stack.conf)
 #
-# Alles, was du hier NICHT einträgst (Zeile leer lassen oder ganz weglassen),
-# wird -- sofern das Skript interaktiv läuft -- auf der Konsole abgefragt,
-# oder es wird der eingebaute Default verwendet (--yes). Passwörter/Secrets,
-# die du leer lässt, werden automatisch sicher generiert.
+# Anything you do NOT fill in here (leave the line blank or omit it
+# entirely) is -- if the script is running interactively -- asked on the
+# console, or falls back to the built-in default (--yes). Passwords/secrets
+# left blank are generated securely and automatically.
 #
-# WICHTIG: Diese Datei enthält deine echten Zugangsdaten, sobald du sie
-# ausgefüllt hast -- nicht committen (steht in .gitignore), chmod 600.
+# IMPORTANT: once filled in, this file holds your real credentials --
+# do not commit it (already in .gitignore), chmod 600.
 
 # --- General ---
 STACK_DIR=/opt/elektron-net-stack
 GITHUB_USER=kutlusoy
-# false (Default) = bereits geklonte Repos bei einem Rerun nie anfassen.
-# true = vor dem Bauen jedes Repo per "git fetch" prüfen und bei neuen
-# Commits per "git pull --ff-only" aktualisieren (nie force/rebase -- ein
-# abgewichener lokaler Branch wird nur gemeldet, nicht angefasst). Wird
-# interaktiv abgefragt, sofern nicht hier gesetzt oder --yes verwendet.
+# false (default) = never touch already-cloned repos on a rerun.
+# true = before building, check each cloned repo with "git fetch" and
+# update it via "git pull --ff-only" if there are new commits (never
+# force/rebase -- a diverged local branch is only reported, never
+# touched). Asked interactively unless set here or --yes is used.
 AUTO_UPDATE_REPOS=false
 SERVER_IP=46.225.163.85
 SERVER_IPV6=2a01:4f8:1c18:ea01::1
 
-# --- Domains (müssen in DNS bereits auf SERVER_IP/SERVER_IPV6 zeigen) ---
+# --- Domains (must already point at SERVER_IP/SERVER_IPV6 in DNS) ---
 NODE_DOMAIN=node1.elektron-net.org
 POOL_DOMAIN=pplns.elektron-net.org
 FAUCET_DOMAIN=faucet.elektron-net.org
@@ -42,20 +43,35 @@ RPC_USER=elektron_svc
 # --- Firewall ---
 FIREWALL_AUTO_CONFIGURE=true
 
-# --- Pool (elektron-net-ppool) ---
+# --- Pool (elektron-net-ppool OR elektron-net-pool -- pick exactly one) ---
+INSTALL_POOL=true
+# 'ppool' = elektron-net-ppool, a shared PPLNS pool with its own payout
+#           ledger and pool wallet (the settings below through JWT_SECRET
+#           apply to this type only).
+# 'pool'  = elektron-net-pool, a solo pool: every miner is paid directly to
+#           their own address in the coinbase, no pool wallet/ledger/JWT.
+# Only ONE of the two is ever installed/started at a time -- both reuse the
+# same STRATUM_PORT/API_PORT, so running both together would collide.
+# Switching this later (INSTALL_POOL staying true) stops+removes the other
+# type's containers on the next run; its data directory is kept untouched.
+POOL_TYPE=ppool
 POOL_WALLET_NAME=pool
-# leer lassen = automatisch generieren. Verschlüsselt die Pool-Wallet --
-# ohne das schlägt jede echte Auszahlung fehl, sobald PAYOUT_DRY_RUN=false
-# gesetzt wird:
+# leave empty to auto-generate. Encrypts the pool wallet -- without this,
+# any real payout fails as soon as PAYOUT_DRY_RUN=false is set.
+# (POOL_TYPE=ppool only -- POOL_TYPE=pool has no pool wallet.)
 POOL_WALLET_PASSPHRASE=
 WALLET_UNLOCK_SECONDS=60
 POOL_IDENTIFIER=Elektron PPLNS Pool
 # Optional -- embedded on-chain as a dedicated OP_RETURN output in every
-# block this pool finds, alongside POOL_IDENTIFIER (see elektron-net-ppool
-# doc-elektron/guideline-pool-identity-op-return.md). Leave empty to skip
-# that output entirely. A bare domain (no http(s)://) gets "https://"
-# prefixed automatically by the install script.
+# block this pool finds, alongside POOL_IDENTIFIER (see
+# doc-elektron/guideline-pool-identity-op-return.md in the pool repo).
+# Leave empty to skip that output entirely. A bare domain (no http(s)://)
+# gets "https://" prefixed automatically by the install script.
 POOL_URL=https://pplns.elektron-net.org
+# Optional -- routes a small development fee to this address. Leave empty
+# to skip it entirely. Applies to both POOL_TYPE values.
+DEV_FEE_ADDRESS=
+# The following, through JWT_SECRET, apply to POOL_TYPE=ppool only.
 POOL_FEE_PERCENT=1.0
 PPLNS_WINDOW_MINUTES=90
 MIN_PAYOUT_THRESHOLD_SATS=100000
@@ -64,16 +80,16 @@ PAYOUT_CONFIRMATIONS_REQUIRED=1
 PAYOUT_DRY_RUN=true
 STRATUM_PORT=3333
 API_PORT=3334
-# leer lassen = automatisch generieren (openssl rand -hex 32):
+# leave empty to auto-generate (openssl rand -hex 32):
 JWT_SECRET=
 
-# Optional -- Telegram-Bot für Miner-Benachrichtigungen (/subscribe
-# <address>). Beide leer lassen deaktiviert das Feature komplett.
-# TELEGRAM_BOT_USERNAME ist rein kosmetisch (nur der angezeigte Link).
+# Optional -- Telegram bot for miner notifications (/subscribe <address>).
+# Leave both empty to disable the feature entirely. TELEGRAM_BOT_USERNAME
+# is purely cosmetic (just the displayed link).
 TELEGRAM_BOT_TOKEN=
 TELEGRAM_BOT_USERNAME=
-# Optional -- Discord-Bot. Alle vier müssen zusammen gesetzt sein, sonst
-# bleibt die Integration deaktiviert.
+# Optional -- Discord bot. All four must be set together, otherwise the
+# integration stays disabled.
 DISCORD_BOT_TOKEN=
 DISCORD_BOT_CLIENTID=
 DISCORD_BOT_GUILD_ID=
@@ -81,17 +97,17 @@ DISCORD_BOT_CHANNEL_ID=
 
 # --- Faucet (elektron-net-faucet) ---
 FAUCET_WALLET_NAME=faucet
-# leer lassen = automatisch generieren:
+# leave empty to auto-generate:
 FAUCET_WALLET_PASSPHRASE=
 FAUCET_DB_NAME=elek_faucet
 FAUCET_DB_USER=elek_faucet
-# leer lassen = automatisch generieren:
+# leave empty to auto-generate:
 FAUCET_DB_PASS=
 FAUCET_DB_ROOT_PASS=
 FAUCET_ADMIN_USER=admin
-# leer lassen = automatisch generieren (mind. 10 Zeichen):
+# leave empty to auto-generate (min. 10 characters):
 FAUCET_ADMIN_PASS=
-# von hcaptcha.com -- dringend empfohlen, aber optional:
+# from hcaptcha.com -- strongly recommended, but optional:
 FAUCET_HCAPTCHA_SITE=
 FAUCET_HCAPTCHA_SECRET=
 FAUCET_TITLE=Elektron Net Faucet
@@ -102,19 +118,19 @@ FAUCET_HOURLY_BUDGET=0.1
 FAUCET_PER_ADDR_COOLDOWN_H=24
 FAUCET_PER_IP_COOLDOWN_H=1
 FAUCET_DEFAULT_LANG=de
-# Optional -- Block-Explorer-Link, der nach einem erfolgreichen Claim
-# angezeigt wird (z. B. https://explorer.example.com):
+# Optional -- block explorer link shown after a successful claim
+# (e.g. https://explorer.example.com):
 FAUCET_EXPLORER_URL=
-# Minuten zwischen zwei Prüfungen, ob eigene Faucet-Auszahlungen noch
-# unbestätigt im Mempool hängen, weil die aktuelle Mindestgebühr des Node
-# (mempoolminfee) inzwischen über der ursprünglich gezahlten liegt -- wird
-# dann per RBF auf eine höhere Gebühr angehoben. Auch später jederzeit ohne
-# Neustart im Admin-Panel unter "Mempool & Fee-Bumping" änderbar:
+# Minutes between checks whether the faucet's own payouts are still
+# unconfirmed in the mempool because the node's current minimum fee
+# (mempoolminfee) has since risen above what was originally paid -- if so,
+# it gets bumped to a higher fee via RBF. Also changeable later at any time
+# without a restart, in the Admin Panel under "Mempool & Fee Bumping":
 FAUCET_FEE_BUMP_INTERVAL_MIN=10
 
-# --- Seeder (elektron-net-seeder) -- OPTIONAL, noch in Testphase ---
-# true = zusätzlich klonen/bauen/starten (Compose-Profil "seeder"). Braucht
-# eigene NS-Delegation für SEEDER_HOST in DNS, siehe README.
+# --- Seeder (elektron-net-seeder) -- OPTIONAL, still in testing ---
+# true = also clone/build/start it (Compose profile "seeder"). Needs its
+# own NS delegation for SEEDER_HOST in DNS, see README.
 INSTALL_SEEDER=false
 SEEDER_HOST=seeder.eleknet.org
 SEEDER_NS=node1.elektron-net.org
@@ -122,27 +138,27 @@ SEEDER_MBOX=admin.eleknet.org
 SEEDER_DNS_PORT=53
 SEEDER_THREADS=96
 SEEDER_DNS_THREADS=4
-SEEDER_MIN_HEIGHT=70000                # junge Chain -- unter dem Seeder-Mainnet-Default von 350000
+SEEDER_MIN_HEIGHT=70000                # young chain -- below the seeder's built-in mainnet default of 350000
 
-# --- Mempool Explorer (elektron-net-mempool) -- OPTIONAL, aber stabil ---
-# true = zusätzlich klonen/bauen/starten (Compose-Profil "mempool"). Braucht
-# keinen neuen Port -- läuft, wie Pool/Faucet, nur hinter Caddy.
-# Installiert automatisch elektron-net-electrs mit (Electrum-Server für die
-# Adress-Suche des Explorers, gleiches Profil, wird gemeinsam entfernt).
+# --- Mempool Explorer (elektron-net-mempool) -- OPTIONAL, but stable ---
+# true = also clone/build/start it (Compose profile "mempool"). Needs no
+# new port -- runs behind Caddy just like Pool/Faucet.
+# Automatically also installs elektron-net-electrs (the Electrum server
+# for the explorer's address search, same profile, removed together with it).
 INSTALL_MEMPOOL=true
 MEMPOOL_DOMAIN=mempool.elektron-net.org
 MEMPOOL_DB_NAME=mempool
 MEMPOOL_DB_USER=mempool
-# leer lassen = automatisch generieren:
+# leave empty to auto-generate:
 MEMPOOL_DB_PASS=
 MEMPOOL_DB_ROOT_PASS=
-# ohne -txindex: Backfill alter Blöcke braucht pro Block einen vollen
-# Block-Datei-Zugriff -- klein halten, siehe elektron-net-mempool/docker-compose.yml
+# without -txindex: backfilling old blocks needs a full block-file access
+# per block -- keep this small, see elektron-net-mempool/docker-compose.yml
 MEMPOOL_INDEXING_BLOCKS_AMOUNT=1000
-# true = "Acceleration"-Menüpunkt (Dashboard) UND "Boost"-Button auf der
-# TX-Seite im Explorer-Frontend aktivieren. Beide verlinken nur auf
-# mempool.space's eigenen (kostenpflichtigen) Fee-Beschleunigungsdienst --
-# reine ausgehende HTTPS-Anfrage an SERVICES_API, braucht KEINE zusätzliche
-# Portfreigabe/Firewall-Regel. false = Menüpunkt und Button bleiben
-# ausgeblendet, wie im Original-Mempool-Frontend ohne diese Flags.
+# true = enable the "Acceleration" menu item (dashboard) AND the "Boost"
+# button on the tx page in the explorer frontend. Both only link out to
+# mempool.space's own (paid) fee-acceleration service -- a plain outbound
+# HTTPS request to SERVICES_API, no additional port/firewall rule needed.
+# false = menu item and button stay hidden, like the original Mempool
+# frontend without these flags.
 MEMPOOL_ACCELERATOR=true
