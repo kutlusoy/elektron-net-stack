@@ -663,8 +663,9 @@ This walkthrough uses `elektron-net-ppool`/`elektron-net-ppool-ui`
 `elektron-net-pool-ui` instead everywhere below, and skip everything
 specific to the pool wallet/JWT (`POOL_WALLET_ADDRESS`, `JWT_SECRET`,
 `WALLET_PASSPHRASE`, `PPLNS_WINDOW_MINUTES`, `POOL_FEE_PERCENT`,
-`PAYOUT_*`, step 6 below) - `elektron-net-pool`'s own `.env.example` has
-the (much shorter) full list of fields for that type.
+`PAYOUT_*`, step 6 below) - this package's `elektron-net-pool/.env.example`
+(alongside `elektron-net-ppool/.env.example` used below) has the (much
+shorter) full list of fields for that type.
 
 ```bash
 mkdir -p /opt/elektron-net-stack && cd /opt/elektron-net-stack
