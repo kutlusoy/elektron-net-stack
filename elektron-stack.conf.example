@@ -68,8 +68,13 @@ POOL_IDENTIFIER=Elektron PPLNS Pool
 # Leave empty to skip that output entirely. A bare domain (no http(s)://)
 # gets "https://" prefixed automatically by the install script.
 POOL_URL=https://pplns.elektron-net.org
-# Optional -- routes a small development fee to this address. Leave empty
-# to skip it entirely. Applies to both POOL_TYPE values.
+# Optional field inherited from the upstream public-pool fork, present in
+# both POOL_TYPE values' .env.example. Currently ignored by either
+# elektron-net-ppool or elektron-net-pool: Elektron's per-block UTXO
+# attestation pins the coinbase to a single payout output, so neither pool
+# can insert a fee split (see either repo's own README, "DEV_FEE_ADDRESS
+# ... is ignored"). Kept here only so a value survives should this ever
+# get implemented, or for a custom pool fork that does read it.
 DEV_FEE_ADDRESS=
 # The following, through JWT_SECRET, apply to POOL_TYPE=ppool only.
 POOL_FEE_PERCENT=1.0
