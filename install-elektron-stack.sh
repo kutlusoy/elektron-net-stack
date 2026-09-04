@@ -119,9 +119,13 @@ DISCORD_BOT_TOKEN=""
 DISCORD_BOT_CLIENTID=""
 DISCORD_BOT_GUILD_ID=""
 DISCORD_BOT_CHANNEL_ID=""
-# Optional -- shown in the pool's .env.example as a place to route a small
-# development fee to. Leave empty to skip it entirely. Applies to both
-# POOL_TYPE values.
+# Optional field carried over from upstream public-pool, present in both
+# POOL_TYPE values' .env.example. NOT currently read by either
+# elektron-net-ppool or elektron-net-pool: Elektron's per-block UTXO
+# attestation pins the coinbase to a single payout output, so neither pool
+# can insert a fee split (see either repo's own README, "DEV_FEE_ADDRESS
+# ... is ignored"). Kept here only so a value survives should this ever
+# get implemented, or for a custom pool fork that does read it.
 DEV_FEE_ADDRESS=""
 
 # --- Faucet (elektron-net-faucet) ---
@@ -1120,6 +1124,8 @@ NETWORK=mainnet
 API_SECURE=false
 POOL_IDENTIFIER="${POOL_IDENTIFIER}"
 POOL_URL=${POOL_URL}
+# Currently ignored by elektron-net-ppool (see its own README) -- kept for
+# upstream public-pool compatibility only, has no effect on payouts.
 DEV_FEE_ADDRESS=${DEV_FEE_ADDRESS}
 
 HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
@@ -1179,6 +1185,8 @@ DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
 DISCORD_BOT_CLIENTID=${DISCORD_BOT_CLIENTID}
 DISCORD_BOT_GUILD_ID=${DISCORD_BOT_GUILD_ID}
 DISCORD_BOT_CHANNEL_ID=${DISCORD_BOT_CHANNEL_ID}
+# Currently ignored by elektron-net-pool (see its own README) -- kept for
+# upstream public-pool compatibility only, has no effect on payouts.
 DEV_FEE_ADDRESS=${DEV_FEE_ADDRESS}
 
 NETWORK=mainnet
