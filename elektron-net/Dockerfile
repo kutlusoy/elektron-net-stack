@@ -12,7 +12,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /build
 COPY . .
 
-# WITH_ZMQ=ON: elektron-net-ppool's .env.example supports an optional
+# WITH_ZMQ=ON: the pool backend's .env.example supports an optional
 # zmqpubrawblock hint (faster than 30s polling); BUILD_GUI=OFF since this
 # is a headless seed/RPC node.
 RUN cmake -B build \
@@ -49,4 +49,4 @@ VOLUME ["/data"]
 EXPOSE 8333 8332
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["elektrond", "-conf=/data/bitcoin.conf", "-datadir=/data", "-printtoconsole"]
+CMD ["elektrond", "-conf=/data/elektron.conf", "-datadir=/data", "-printtoconsole"]
