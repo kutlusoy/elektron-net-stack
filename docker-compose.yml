@@ -15,16 +15,48 @@ services:
     ports:
       - "8333:8333"
     volumes:
-      - "./elektron-net/bitcoin.conf:/data/bitcoin.conf:ro"
+      - "./elektron-net/elektron.conf:/data/elektron.conf:ro"
       - "./data/elektron-net:/data"
 
   # ------------------------------------------------------------------
-  # PPLNS pool backend -- pplns.elektron-net.org (via ppool-ui's proxy)
+  # Pool backend -- pplns.elektron-net.org (via the pool UI's proxy)
   # Stratum 3333 public (miners connect directly). API 3334 stays
-  # internal; only elektron-ppool-ui talks to it.
+  # internal; only the pool UI talks to it.
+  #
+  # This block shows the POOL_TYPE=ppool variant (elektron-net-ppool),
+  # the default. install-elektron-stack.sh always regenerates this whole
+  # file from scratch on every run, and for POOL_TYPE=pool writes the
+  # elektron-net-pool + elektron-net-pool-ui services here instead (never
+  # both at once -- see the README, "Pool type: ppool vs. pool"). If
+  # you're assembling this file by hand for a POOL_TYPE=pool install,
+  # swap this block and the next one for:
+  #
+  #   elektron-pool:
+  #     container_name: elektron-pool
+  #     profiles: [pool]
+  #     build: { context: ./elektron-net-pool }
+  #     restart: unless-stopped
+  #     depends_on: [elektron-net]
+  #     networks: [backend, web]   # "web" too: Caddy proxies /api/* straight to this container (elektron-net-pool-ui has no built-in API_UPSTREAM support yet)
+  #     ports: ["3333:3333"]
+  #     volumes:
+  #       - "./elektron-net-pool/.env:/elektron-pool/.env:ro"
+  #       - "./data/pool-DB:/elektron-pool/DB"
+  #
+  #   elektron-pool-ui:
+  #     container_name: elektron-pool-ui
+  #     profiles: [pool]
+  #     build: { context: ./elektron-net-pool-ui }
+  #     restart: unless-stopped
+  #     depends_on: [elektron-pool]
+  #     networks: [backend, web]
+  #     environment:
+  #       - PUBLIC_POOL_API_URL=
   # ------------------------------------------------------------------
   elektron-ppool:
     container_name: elektron-ppool
+    profiles:
+      - pool
     build:
       context: ./elektron-net-ppool
     restart: unless-stopped
@@ -39,11 +71,15 @@ services:
       - "./data/ppool-DB:/elektron-pool/DB"
 
   # ------------------------------------------------------------------
-  # PPLNS pool UI -- reverse-proxied by Caddy at pplns.elektron-net.org.
+  # Pool UI -- reverse-proxied by Caddy at pplns.elektron-net.org.
   # Not published to the host directly; Caddy reaches it on "web".
+  # Does its own internal /api/* reverse-proxying to elektron-ppool via
+  # API_UPSTREAM (see elektron-net-ppool-ui/docker/entrypoint.sh).
   # ------------------------------------------------------------------
   elektron-ppool-ui:
     container_name: elektron-ppool-ui
+    profiles:
+      - pool
     build:
       context: ./elektron-net-ppool-ui
     restart: unless-stopped
@@ -150,6 +186,49 @@ services:
       timeout: 5s
       retries: 20
 
+  # Electrum server for the Mempool Explorer's address lookups AND for
+  # external Electrum wallet clients (e.g. Elektron Electrum). Same
+  # profile as the mempool services: exists exactly when the explorer is
+  # installed. All settings (including RPC credentials, the Elektron P2P
+  # magic e1ec7a6e and the node's P2P address for block download) come
+  # from the generated elektron-net-electrs/electrs.toml -- electrs
+  # fundamentally does NOT accept credentials via env var or CLI.
+  #
+  # ports: publishes electrs' single Electrum RPC listener (internally
+  # "0.0.0.0:50001", see electrs.toml) twice from the host -- as the
+  # conventional "t" (50001, plain TCP) AND as "s" (50002), both mapped to
+  # the same container port. IMPORTANT: electrs itself cannot terminate
+  # TLS (no certificate handling in the upstream code), and this stack
+  # currently has NO separate TLS terminator in front of it -- so 50002,
+  # despite the "s" convention, is also plain TCP, no real SSL. Wallets
+  # that strictly require a TLS handshake on the "s" port will fail
+  # there; they're best off relying on 50001 ("t") or a "no SSL" setting
+  # for the server entry. Without this mapping, electrs would only be
+  # reachable over the internal "backend" Docker network, not from the
+  # outside -- that was the reason for the initially failing wallet
+  # connection to electrs.elektron-net.org:50002.
+  elektron-electrs:
+    container_name: elektron-electrs
+    profiles:
+      - mempool
+    build:
+      context: ./elektron-net-electrs
+    restart: unless-stopped
+    depends_on:
+      elektron-net:
+        condition: service_started
+    networks:
+      - backend
+    ports:
+      - "50001:50001"
+      - "50002:50001"
+    # the image defines no CMD/ENTRYPOINT; config is read automatically
+    # from /etc/electrs/config.toml (electrs' standard search path)
+    command: ["electrs"]
+    volumes:
+      - "./elektron-net-electrs/electrs.toml:/etc/electrs/config.toml:ro"
+      - "./data/electrs:/data"
+
   elektron-mempool-api:
     container_name: elektron-mempool-api
     profiles:
@@ -167,6 +246,8 @@ services:
         condition: service_started
       elektron-mempool-db:
         condition: service_healthy
+      elektron-electrs:
+        condition: service_started
     networks:
       - backend
     env_file: ./elektron-net-mempool/.env
@@ -208,7 +289,7 @@ services:
 networks:
   # Node RPC, pool backend, faucet DB/app, mempool DB/API -- never exposed to the host.
   backend:
-  # Only what Caddy needs to reach: the web-facing UIs.
+  # Only what Caddy needs to reach: the web-facing UIs (and, for POOL_TYPE=pool, the pool API too).
   web:
 
 volumes:

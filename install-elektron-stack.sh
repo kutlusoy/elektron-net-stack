@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Elektron Net -- one-shot install script (node + ppool + ppool-ui + faucet + Caddy)
+# Elektron Net -- one-shot install script (node + pool (ppool or pool) + faucet + Caddy)
 #
 # Usage:
 #   1. Copy this file (and, if you have one, elektron-stack.conf) onto your
@@ -71,16 +71,32 @@ RPC_USER="elektron_svc"                       # rpcauth username (password is au
 # --- Firewall ---
 FIREWALL_AUTO_CONFIGURE=true                  # true = run ufw commands automatically
 
-# --- Pool (elektron-net-ppool) ---
-INSTALL_POOL="true"                           # true = clone/build/start ppool + ppool-ui (Compose profile "pool"); publishes STRATUM_PORT
-POOL_WALLET_NAME="pool"                       # wallet name on the node for pool payouts
+# --- Pool (elektron-net-ppool OR elektron-net-pool -- pick exactly one) ---
+INSTALL_POOL="true"                           # true = clone/build/start the pool backend + dashboard (Compose profile "pool"); publishes STRATUM_PORT
+# 'ppool' = elektron-net-ppool, a shared PPLNS pool with its own payout
+#           ledger and pool wallet (today's default, unchanged behaviour).
+# 'pool'  = elektron-net-pool, a solo pool: every miner is paid directly to
+#           their own address in the coinbase, no pool wallet/ledger/JWT at
+#           all -- a much smaller config surface (see the branches below).
+# Only ONE of the two is ever installed/started at a time -- both use the
+# same STRATUM_PORT/API_PORT, so running both together would collide.
+# Switching this (with INSTALL_POOL staying true) stops+removes the other
+# type's containers on the next run; its data directory is kept untouched.
+POOL_TYPE="ppool"
+POOL_WALLET_NAME="pool"                       # wallet name on the node for pool payouts -- POOL_TYPE=ppool only, ignored for POOL_TYPE=pool (no pool wallet)
 # leave empty to auto-generate a strong passphrase (printed at the end -- save it!):
 # The pool wallet gets encrypted with this just like the faucet wallet --
 # ppool unlocks it automatically for WALLET_UNLOCK_SECONDS on every payout
 # run, then re-locks it immediately (see wallet-rpc.service.ts).
 POOL_WALLET_PASSPHRASE=""
 WALLET_UNLOCK_SECONDS="60"
-POOL_IDENTIFIER="Elektron-PPLNS-Pool"
+POOL_IDENTIFIER="Elektron PPLNS Pool"
+# Optional. Embedded on-chain as a dedicated OP_RETURN output in every block
+# this pool finds, alongside POOL_IDENTIFIER (see elektron-net-ppool
+# doc-elektron/guideline-pool-identity-op-return.md) -- leave empty to skip
+# that output entirely. Auto-gets "https://" prefixed if you enter a bare
+# domain (either here or at the prompt below).
+POOL_URL="https://pplns.elektron-net.org"
 POOL_FEE_PERCENT="1.0"
 PPLNS_WINDOW_MINUTES="90"
 MIN_PAYOUT_THRESHOLD_SATS="100000"
@@ -103,6 +119,10 @@ DISCORD_BOT_TOKEN=""
 DISCORD_BOT_CLIENTID=""
 DISCORD_BOT_GUILD_ID=""
 DISCORD_BOT_CHANNEL_ID=""
+# Optional -- shown in the pool's .env.example as a place to route a small
+# development fee to. Leave empty to skip it entirely. Applies to both
+# POOL_TYPE values.
+DEV_FEE_ADDRESS=""
 
 # --- Faucet (elektron-net-faucet) ---
 INSTALL_FAUCET="true"                         # true = clone/build/start faucet-db + faucet-app (Compose profile "faucet"); no new port, Caddy-proxied
@@ -155,9 +175,9 @@ MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-
 # sync with the block above. Doubles as the whitelist for config-file keys
 # (so an uploaded file can only ever set plain values, never run code).
 CONFIG_VARS="STACK_DIR GITHUB_USER AUTO_UPDATE_REPOS SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
-FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE INSTALL_POOL POOL_WALLET_NAME
+FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE INSTALL_POOL POOL_TYPE POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
-POOL_IDENTIFIER POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
+POOL_IDENTIFIER POOL_URL DEV_FEE_ADDRESS POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
 API_PORT JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_BOT_USERNAME DISCORD_BOT_TOKEN
 DISCORD_BOT_CLIENTID DISCORD_BOT_GUILD_ID DISCORD_BOT_CHANNEL_ID
@@ -278,9 +298,12 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   ask CADDY_EMAIL   "Email for Let's Encrypt (optional, press Enter to skip)"
   log "All passwords/secrets (JWT_SECRET, DB passwords, wallet passphrase, RPC password,"
   log "faucet admin password) will be generated automatically in a moment, unless supplied via the config file."
-  ask_yes_no INSTALL_POOL "Install the PPLNS mining pool (elektron-net-ppool + dashboard)?"
+  ask_yes_no INSTALL_POOL "Install a mining pool backend + dashboard?"
   if [ "$INSTALL_POOL" = "true" ]; then
+    ask POOL_TYPE "Pool type -- 'ppool' (shared PPLNS pool, own payout ledger + pool wallet, elektron-net-ppool) or 'pool' (solo pool, miners are paid directly to their own address, no pool wallet, elektron-net-pool)"
     ask POOL_DOMAIN "Domain for the pool dashboard"
+    ask POOL_IDENTIFIER "Pool name shown on-chain in every found block and in the dashboard"
+    ask POOL_URL "Pool URL shown on-chain in every found block and in the dashboard (blank to skip)"
   fi
   ask_yes_no INSTALL_FAUCET "Install the faucet (elektron-net-faucet)?"
   if [ "$INSTALL_FAUCET" = "true" ]; then
@@ -301,6 +324,32 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   fi
 else
   log "Non-interactive mode (--yes or no terminal) -- using defaults/config file without prompting."
+fi
+
+# POOL_URL needs a scheme to work as a clickable link in the pool dashboard
+# and to be a well-formed URL once embedded on-chain -- add one if whoever
+# set it (config file or the prompt above) left it as a bare domain.
+if [ -n "$POOL_URL" ]; then
+  case "$POOL_URL" in
+    http://*|https://*) ;;
+    *) POOL_URL="https://${POOL_URL}" ;;
+  esac
+fi
+
+case "$POOL_TYPE" in
+  ppool|pool) ;;
+  *) die "POOL_TYPE must be 'ppool' or 'pool' (got: '${POOL_TYPE}')." ;;
+esac
+
+# The CONFIG DEFAULTS above assume POOL_TYPE=ppool (the long-standing
+# default) -- if POOL_TYPE=pool was chosen and these three were left at
+# their still-PPLNS-flavoured defaults (not overridden by config file or
+# prompt), swap in solo-pool-appropriate ones instead of writing "PPLNS
+# Pool" / pplns.* into a solo-pool deployment.
+if [ "$POOL_TYPE" = "pool" ]; then
+  [ "$POOL_IDENTIFIER" = "Elektron PPLNS Pool" ] && POOL_IDENTIFIER="Elektron Solo Pool"
+  [ "$POOL_DOMAIN" = "pplns.elektron-net.org" ] && POOL_DOMAIN="pool.elektron-net.org"
+  [ "$POOL_URL" = "https://pplns.elektron-net.org" ] && POOL_URL="https://pool.elektron-net.org"
 fi
 
 # ============================================================================
@@ -330,9 +379,35 @@ existing_value() {
   grep "^${key}=" "$file" 2>/dev/null | tail -n1 | cut -d= -f2- || true
 }
 
-PPOOL_ENV_PATH="${STACK_DIR}/elektron-net-ppool/.env"
+# Everything that differs between the two pool types funnels through these
+# five variables -- the rest of the script below only ever refers to
+# $POOL_REPO/$POOL_UI_REPO/$POOL_SVC/$POOL_UI_SVC/$POOL_DB_DIR/$POOL_ENV_PATH,
+# never to "elektron-net-ppool"/"elektron-ppool" or "elektron-net-pool"/
+# "elektron-pool" directly.
+if [ "$POOL_TYPE" = "pool" ]; then
+  POOL_REPO="elektron-net-pool"
+  POOL_UI_REPO="elektron-net-pool-ui"
+  POOL_SVC="elektron-pool"
+  POOL_UI_SVC="elektron-pool-ui"
+  POOL_DB_DIR="data/pool-DB"
+else
+  POOL_REPO="elektron-net-ppool"
+  POOL_UI_REPO="elektron-net-ppool-ui"
+  POOL_SVC="elektron-ppool"
+  POOL_UI_SVC="elektron-ppool-ui"
+  POOL_DB_DIR="data/ppool-DB"
+fi
+POOL_ENV_PATH="${STACK_DIR}/${POOL_REPO}/.env"
 FAUCET_ENV_PATH="${STACK_DIR}/elektron-net-faucet/.env"
-BITCOIN_CONF_PATH="${STACK_DIR}/elektron-net/bitcoin.conf"
+# elektron.conf is the preferred config filename for new installs; bitcoin.conf
+# (this fork's Bitcoin Core-inherited default, see elektron-net/TECHNICAL_SETUP.md)
+# is still fully respected -- elektrond is always started with an explicit
+# -conf= flag, so the filename itself is purely a stack-level naming choice,
+# never left to elektrond's own built-in default lookup. LEGACY_BITCOIN_CONF_PATH
+# is only used as a one-time fallback below, to carry the rpcauth credentials
+# of an existing install over to the new filename instead of regenerating them.
+BITCOIN_CONF_PATH="${STACK_DIR}/elektron-net/elektron.conf"
+LEGACY_BITCOIN_CONF_PATH="${STACK_DIR}/elektron-net/bitcoin.conf"
 MEMPOOL_ENV_PATH="${STACK_DIR}/elektron-net-mempool/.env"
 
 # Auto-generate any secret left blank in the CONFIG block above -- but only
@@ -357,8 +432,14 @@ reuse_or_generate() {
   fi
 }
 
-reuse_or_generate JWT_SECRET              "$PPOOL_ENV_PATH"  JWT_SECRET              rand_hex 32
-reuse_or_generate POOL_WALLET_PASSPHRASE   "$PPOOL_ENV_PATH"  WALLET_PASSPHRASE       rand_base64 32
+# JWT_SECRET/POOL_WALLET_PASSPHRASE only mean anything for the PPLNS pool
+# (miner account logins, pool wallet encryption) -- POOL_TYPE=pool has
+# neither a login system nor a pool wallet, so generating/reusing them there
+# would just add unused secrets to the summary below.
+if [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; then
+  reuse_or_generate JWT_SECRET             "$POOL_ENV_PATH"   JWT_SECRET              rand_hex 32
+  reuse_or_generate POOL_WALLET_PASSPHRASE "$POOL_ENV_PATH"   WALLET_PASSPHRASE       rand_base64 32
+fi
 reuse_or_generate FAUCET_WALLET_PASSPHRASE "$FAUCET_ENV_PATH" FAUCET_WALLET_PASS      rand_base64 32
 reuse_or_generate FAUCET_DB_PASS           "$FAUCET_ENV_PATH" FAUCET_DB_PASS          rand_base64 24
 reuse_or_generate FAUCET_DB_ROOT_PASS      "$FAUCET_ENV_PATH" FAUCET_DB_ROOT_PASS     rand_base64 24
@@ -407,8 +488,15 @@ refuse_fresh_secret_for_existing_data FAUCET_DB_ROOT_PASS  "${STACK_DIR}/data/fa
 # upfront check for whether they already exist.
 REUSE_RPC_AUTH=false
 EXISTING_RPC_AUTH_LINE="$(existing_value "$BITCOIN_CONF_PATH" rpcauth)"
+if [ -z "$EXISTING_RPC_AUTH_LINE" ]; then
+  # One-time migration path: an install from before the elektron.conf rename
+  # only has the credentials under the legacy bitcoin.conf filename -- reuse
+  # them from there instead of generating a fresh RPC password.
+  EXISTING_RPC_AUTH_LINE="$(existing_value "$LEGACY_BITCOIN_CONF_PATH" rpcauth)"
+  [ -n "$EXISTING_RPC_AUTH_LINE" ] && log "Migrating from the legacy elektron-net/bitcoin.conf filename to elektron-net/elektron.conf (RPC credentials carried over unchanged)."
+fi
 EXISTING_RPC_USER="${EXISTING_RPC_AUTH_LINE%%:*}"
-EXISTING_RPC_PASSWORD="$(existing_value "$PPOOL_ENV_PATH" ELEKTRON_RPC_PASSWORD)"
+EXISTING_RPC_PASSWORD="$(existing_value "$POOL_ENV_PATH" ELEKTRON_RPC_PASSWORD)"
 if [ -n "$EXISTING_RPC_AUTH_LINE" ] && [ -n "$EXISTING_RPC_PASSWORD" ] && [ "$EXISTING_RPC_USER" = "$RPC_USER" ]; then
   REUSE_RPC_AUTH=true
 fi
@@ -419,8 +507,8 @@ fi
 # empty address while any already-deposited ELEK sits on the old one. Only
 # reuse it if the wallet name is unchanged since the last run.
 EXISTING_POOL_WALLET_ADDRESS=""
-if [ "$(existing_value "$PPOOL_ENV_PATH" WALLET_RPC_WALLET_NAME)" = "$POOL_WALLET_NAME" ]; then
-  EXISTING_POOL_WALLET_ADDRESS="$(existing_value "$PPOOL_ENV_PATH" POOL_WALLET_ADDRESS)"
+if [ "$POOL_TYPE" = "ppool" ] && [ "$(existing_value "$POOL_ENV_PATH" WALLET_RPC_WALLET_NAME)" = "$POOL_WALLET_NAME" ]; then
+  EXISTING_POOL_WALLET_ADDRESS="$(existing_value "$POOL_ENV_PATH" POOL_WALLET_ADDRESS)"
 fi
 EXISTING_FAUCET_SENDER_ADDR=""
 if [ "$(existing_value "$FAUCET_ENV_PATH" FAUCET_WALLET_NAME)" = "$FAUCET_WALLET_NAME" ]; then
@@ -509,7 +597,7 @@ clone_or_skip() {
   if [ -d "$repo" ] && [ "$(ls -A "$repo" 2>/dev/null)" ]; then
     # Directory already exists and isn't empty -- typically because it
     # comes from THIS deploy repo (elektron-net-stack) and already
-    # contains our extra files (Dockerfile, bitcoin.conf, .env template,
+    # contains our extra files (Dockerfile, elektron.conf, .env template,
     # ...). `git clone` would abort here with "destination path already
     # exists and is not an empty directory" -- so clone upstream into a
     # temp directory instead and only copy in what isn't there yet (our
@@ -528,8 +616,8 @@ clone_or_skip() {
 }
 
 clone_or_skip "elektron-net"
-[ "$INSTALL_POOL" = "true" ] && clone_or_skip "elektron-net-ppool"
-[ "$INSTALL_POOL" = "true" ] && clone_or_skip "elektron-net-ppool-ui"
+[ "$INSTALL_POOL" = "true" ] && clone_or_skip "$POOL_REPO"
+[ "$INSTALL_POOL" = "true" ] && clone_or_skip "$POOL_UI_REPO"
 [ "$INSTALL_FAUCET" = "true" ] && clone_or_skip "elektron-net-faucet"
 [ "$INSTALL_SEEDER" = "true" ] && clone_or_skip "elektron-net-seeder"
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-mempool"
@@ -540,7 +628,7 @@ clone_or_skip "elektron-net"
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-electrs"
 
 mkdir -p caddy data/elektron-net external-wallets
-[ "$INSTALL_POOL" = "true" ] && mkdir -p data/ppool-DB
+[ "$INSTALL_POOL" = "true" ] && mkdir -p "$POOL_DB_DIR"
 [ "$INSTALL_FAUCET" = "true" ] && mkdir -p data/faucet-db data/faucet-config
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
 [ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache data/electrs
@@ -622,21 +710,21 @@ VOLUME ["/data"]
 EXPOSE 8333 8332
 
 ENTRYPOINT ["docker-entrypoint.sh"]
-CMD ["elektrond", "-conf=/data/bitcoin.conf", "-datadir=/data", "-printtoconsole"]
+CMD ["elektrond", "-conf=/data/elektron.conf", "-datadir=/data", "-printtoconsole"]
 DOCKERFILE_EOF
 
 log "Writing elektron-net/docker-entrypoint.sh ..."
 cat > elektron-net/docker-entrypoint.sh <<'ENTRYPOINT_EOF'
 #!/bin/sh
 set -e
-# bitcoin.conf is bind-mounted read-only directly at /data/bitcoin.conf --
+# elektron.conf is bind-mounted read-only directly at /data/elektron.conf --
 # `chown -R` on the whole tree would fail on it (Read-only file system)
 # and, under `set -e`, abort this script before elektrond ever starts.
 # It doesn't need to be owned by elektron anyway, just readable (world-
 # readable by default from how the install script writes it) -- so chown
 # everything else under /data and leave that one path alone.
 chown elektron:elektron /data
-find /data -mindepth 1 -maxdepth 1 ! -name bitcoin.conf -exec chown -R elektron:elektron {} +
+find /data -mindepth 1 -maxdepth 1 ! -name elektron.conf -exec chown -R elektron:elektron {} +
 exec gosu elektron "$@"
 ENTRYPOINT_EOF
 chmod +x elektron-net/docker-entrypoint.sh
@@ -656,10 +744,13 @@ else
 fi
 
 # ============================================================================
-# 4. elektron-net/bitcoin.conf
+# 4. elektron-net/elektron.conf (preferred filename; bitcoin.conf from an
+#    older install is migrated automatically, see LEGACY_BITCOIN_CONF_PATH
+#    above -- its rpcauth was already carried over, this just switches the
+#    file this script itself writes and the container mounts from now on)
 # ============================================================================
-log "Writing elektron-net/bitcoin.conf ..."
-cat > elektron-net/bitcoin.conf <<CONF_EOF
+log "Writing elektron-net/elektron.conf ..."
+cat > elektron-net/elektron.conf <<CONF_EOF
 server=1
 listen=1
 bind=0.0.0.0:8333
@@ -675,17 +766,27 @@ zmqpubrawtx=tcp://0.0.0.0:28333
 disablewallet=0
 # Auto-load these wallets on every node startup -- without this, a restart
 # leaves listwallets empty and pool/faucet payouts fail until someone runs
-# `loadwallet` by hand. Only listed here for whichever of pool/faucet is
+# \`loadwallet\` by hand. Only listed here for whichever of pool/faucet is
 # actually installed, so the node never tries to auto-load a wallet that
 # was never created.
-$( [ "$INSTALL_POOL" = "true" ] && echo "wallet=${POOL_WALLET_NAME}" )
+$( [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && echo "wallet=${POOL_WALLET_NAME}" )
 $( [ "$INSTALL_FAUCET" = "true" ] && echo "wallet=${FAUCET_WALLET_NAME}" )
 CONF_EOF
+
+# Once elektron.conf exists and has taken over, the old bitcoin.conf (if this
+# is an update of a pre-rename install) is no longer read by anything -- move
+# it aside instead of leaving a stale, misleadingly-named duplicate next to
+# the real config. Never deleted outright, so nothing is lost if this is
+# somehow wrong.
+if [ -f elektron-net/bitcoin.conf ] && [ -f elektron-net/elektron.conf ]; then
+  log "elektron-net/elektron.conf is now in use -- moving the old elektron-net/bitcoin.conf aside to elektron-net/bitcoin.conf.migrated"
+  mv -f elektron-net/bitcoin.conf elektron-net/bitcoin.conf.migrated
+fi
 
 # ============================================================================
 # 5. docker-compose.yml
 # ============================================================================
-log "Schreibe docker-compose.yml ..."
+log "Writing docker-compose.yml ..."
 cat > docker-compose.yml <<'COMPOSE_EOF'
 services:
 
@@ -699,41 +800,69 @@ services:
     ports:
       - "8333:8333"
     volumes:
-      - "./elektron-net/bitcoin.conf:/data/bitcoin.conf:ro"
+      - "./elektron-net/elektron.conf:/data/elektron.conf:ro"
       - "./data/elektron-net:/data"
 
-  elektron-ppool:
-    container_name: elektron-ppool
+COMPOSE_EOF
+
+# Pool backend + dashboard: written as its own, unquoted heredoc (unlike the
+# rest of this file) because it needs real variable substitution -- which of
+# the two pool types is selected, and how its dashboard reaches its own API.
+#
+# elektron-net-ppool-ui already does its own internal reverse-proxying of
+# /api/* to its backend (see API_UPSTREAM in its docker/entrypoint.sh), so
+# the UI container is the only thing Caddy needs to reach for that type.
+# elektron-net-pool-ui does not have that built in yet, so for POOL_TYPE=pool
+# the stack's own Caddy (see the Caddyfile section below) proxies /api/*
+# straight to the backend container instead -- which is why elektron-pool
+# additionally needs the "web" network here (Caddy only sits on "web"),
+# while elektron-ppool stays backend-only as before. Either way the browser
+# only ever talks to one origin (POOL_DOMAIN), no CORS, no extra public port.
+if [ "$POOL_TYPE" = "pool" ]; then
+  POOL_SVC_NETWORKS="      - backend
+      - web"
+  POOL_UI_ENV_LINE="      - PUBLIC_POOL_API_URL="
+else
+  POOL_SVC_NETWORKS="      - backend"
+  POOL_UI_ENV_LINE="      - API_UPSTREAM=${POOL_SVC}:${API_PORT}"
+fi
+
+cat >> docker-compose.yml <<POOL_COMPOSE_EOF
+  ${POOL_SVC}:
+    container_name: ${POOL_SVC}
     profiles:
       - pool
     build:
-      context: ./elektron-net-ppool
+      context: ./${POOL_REPO}
     restart: unless-stopped
     depends_on:
       - elektron-net
     networks:
-      - backend
+${POOL_SVC_NETWORKS}
     ports:
-      - "3333:3333"
+      - "${STRATUM_PORT}:${STRATUM_PORT}"
     volumes:
-      - "./elektron-net-ppool/.env:/elektron-pool/.env:ro"
-      - "./data/ppool-DB:/elektron-pool/DB"
+      - "./${POOL_REPO}/.env:/elektron-pool/.env:ro"
+      - "./${POOL_DB_DIR}:/elektron-pool/DB"
 
-  elektron-ppool-ui:
-    container_name: elektron-ppool-ui
+  ${POOL_UI_SVC}:
+    container_name: ${POOL_UI_SVC}
     profiles:
       - pool
     build:
-      context: ./elektron-net-ppool-ui
+      context: ./${POOL_UI_REPO}
     restart: unless-stopped
     depends_on:
-      - elektron-ppool
+      - ${POOL_SVC}
     networks:
       - backend
       - web
     environment:
-      - API_UPSTREAM=elektron-ppool:3334
+${POOL_UI_ENV_LINE}
 
+POOL_COMPOSE_EOF
+
+cat >> docker-compose.yml <<'COMPOSE_EOF'
   elektron-faucet-db:
     container_name: elektron-faucet-db
     image: mariadb:11.4
@@ -937,7 +1066,18 @@ log "Writing caddy/Caddyfile ..."
   if [ "$INSTALL_POOL" = "true" ]; then
     echo
     echo "${POOL_DOMAIN} {"
-    echo "	reverse_proxy elektron-ppool-ui:80"
+    if [ "$POOL_TYPE" = "pool" ]; then
+      # elektron-net-pool-ui has no built-in API_UPSTREAM reverse-proxy
+      # support yet (unlike elektron-net-ppool-ui) -- so this proxies /api/*
+      # straight to the backend container itself. Deliberately "handle" (not
+      # "handle_path"): the backend's own routes are already prefixed with
+      # /api (NestJS app.setGlobalPrefix('api')), and handle_path would strip
+      # that prefix before forwarding, causing every proxied request to 404.
+      echo "	handle /api/* {"
+      echo "		reverse_proxy ${POOL_SVC}:${API_PORT}"
+      echo "	}"
+    fi
+    echo "	reverse_proxy ${POOL_UI_SVC}:80"
     echo "}"
   fi
   if [ "$INSTALL_FAUCET" = "true" ]; then
@@ -955,11 +1095,14 @@ log "Writing caddy/Caddyfile ..."
 } > caddy/Caddyfile
 
 # ============================================================================
-# 7. elektron-net-ppool/.env -- only if INSTALL_POOL=true
+# 7. <pool repo>/.env -- only if INSTALL_POOL=true; content depends on
+#    POOL_TYPE, since the two pool backends have very different config
+#    surfaces (ppool: payout ledger + pool wallet + JWT logins; pool: none
+#    of that, miners are paid directly to their own address).
 # ============================================================================
-if [ "$INSTALL_POOL" = "true" ]; then
-log "Writing elektron-net-ppool/.env ..."
-cat > elektron-net-ppool/.env <<ENV_EOF
+if [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; then
+log "Writing ${POOL_REPO}/.env ..."
+cat > "${POOL_REPO}/.env" <<ENV_EOF
 ELEKTRON_RPC_URL=http://elektron-net
 ELEKTRON_RPC_USER=${RPC_USER}
 ELEKTRON_RPC_PASSWORD=${RPC_PASSWORD}
@@ -976,6 +1119,8 @@ DIFFICULTY_CHECK_INTERVAL_MS=60000
 NETWORK=mainnet
 API_SECURE=false
 POOL_IDENTIFIER="${POOL_IDENTIFIER}"
+POOL_URL=${POOL_URL}
+DEV_FEE_ADDRESS=${DEV_FEE_ADDRESS}
 
 HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
 HOBBY_MINER_DIFFICULTY=0.001
@@ -1008,6 +1153,42 @@ WALLET_PASSPHRASE=${POOL_WALLET_PASSPHRASE}
 WALLET_UNLOCK_SECONDS=${WALLET_UNLOCK_SECONDS}
 
 JWT_SECRET=${JWT_SECRET}
+ENV_EOF
+elif [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "pool" ]; then
+log "Writing ${POOL_REPO}/.env ..."
+cat > "${POOL_REPO}/.env" <<ENV_EOF
+ELEKTRON_RPC_URL=http://elektron-net
+ELEKTRON_RPC_USER=${RPC_USER}
+ELEKTRON_RPC_PASSWORD=${RPC_PASSWORD}
+ELEKTRON_RPC_PORT=8332
+ELEKTRON_RPC_TIMEOUT=10000
+ELEKTRON_ZMQ_HOST=tcp://elektron-net:28332
+
+API_PORT=${API_PORT}
+STRATUM_PORT=${STRATUM_PORT}
+STRATUM_MAX_CONNECTIONS_PER_LISTENER=10000
+JOB_REFRESH_INTERVAL_MS=30000
+DIFFICULTY_CHECK_INTERVAL_MS=60000
+
+# Optional -- leave blank to disable the respective integration.
+# elektron-net-pool has no equivalent to ppool's TELEGRAM_BOT_USERNAME
+# (there is nothing to link to -- solo-pool payouts have no miner login/
+# subscribe flow), so it is deliberately not written here.
+TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+DISCORD_BOT_TOKEN=${DISCORD_BOT_TOKEN}
+DISCORD_BOT_CLIENTID=${DISCORD_BOT_CLIENTID}
+DISCORD_BOT_GUILD_ID=${DISCORD_BOT_GUILD_ID}
+DISCORD_BOT_CHANNEL_ID=${DISCORD_BOT_CHANNEL_ID}
+DEV_FEE_ADDRESS=${DEV_FEE_ADDRESS}
+
+NETWORK=mainnet
+API_SECURE=false
+POOL_IDENTIFIER="${POOL_IDENTIFIER}"
+POOL_URL=${POOL_URL}
+
+HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
+HOBBY_MINER_DIFFICULTY=0.001
+DIAGNOSTIC_SHARE_LOGGING_MODES=
 ENV_EOF
 fi
 
@@ -1244,7 +1425,10 @@ create_wallet_if_missing() {
   fi
 }
 
-if [ "$INSTALL_POOL" = "true" ]; then
+# POOL_TYPE=pool (solo pool) has no pool wallet at all -- every miner is
+# paid directly to their own address in the coinbase, so none of this
+# wallet setup applies there.
+if [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; then
   log "Setting up the pool wallet ..."
   create_wallet_if_missing "$POOL_WALLET_NAME"
   if [ -n "$EXISTING_POOL_WALLET_ADDRESS" ]; then
@@ -1254,7 +1438,7 @@ if [ "$INSTALL_POOL" = "true" ]; then
     POOL_ADDR="$(node_cli -rpcwallet="$POOL_WALLET_NAME" getnewaddress "" bech32 | tr -d '\r\n')"
     log "New pool wallet address: ${POOL_ADDR}"
   fi
-  sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" elektron-net-ppool/.env
+  sed -i "s#^POOL_WALLET_ADDRESS=.*#POOL_WALLET_ADDRESS=${POOL_ADDR}#" "${POOL_REPO}/.env"
 fi
 
 # Encrypt if not already encrypted -- recommended before real payouts run
@@ -1279,7 +1463,7 @@ encrypt_wallet_if_missing() {
   fi
 }
 
-[ "$INSTALL_POOL" = "true" ] && encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
+[ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && encrypt_wallet_if_missing "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE"
 
 if [ "$INSTALL_FAUCET" = "true" ]; then
   log "Setting up the faucet wallet ..."
@@ -1342,21 +1526,31 @@ export_wallet_backup() {
   node_cli -rpcwallet="$wname" walletlock >/dev/null 2>&1 || true
 }
 
-[ "$INSTALL_POOL" = "true" ]   && export_wallet_backup "$POOL_WALLET_NAME"   "$POOL_WALLET_PASSPHRASE"   "$POOL_WALLET_DUMP_HOST"   "/data/pool-wallet-privkeys-backup.txt"
+[ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && export_wallet_backup "$POOL_WALLET_NAME" "$POOL_WALLET_PASSPHRASE" "$POOL_WALLET_DUMP_HOST" "/data/pool-wallet-privkeys-backup.txt"
 [ "$INSTALL_FAUCET" = "true" ] && export_wallet_backup "$FAUCET_WALLET_NAME" "$FAUCET_WALLET_PASSPHRASE" "$FAUCET_WALLET_DUMP_HOST" "/data/faucet-wallet-privkeys-backup.txt"
 
 # ============================================================================
-# 10c. Disable the pool, if INSTALL_POOL is (again) set to false
+# 10c. Disable/remove pool containers that are no longer the currently
+# selected one -- covers both INSTALL_POOL=false and switching POOL_TYPE
+# while INSTALL_POOL stays true. Only one pool type's containers may ever
+# exist at once (both types reuse STRATUM_PORT/API_PORT), so whichever
+# type isn't currently selected gets torn down here; its data directory
+# (data/ppool-DB/ or data/pool-DB/) is always kept for a later switch-back.
 # ============================================================================
-if [ "$INSTALL_POOL" != "true" ]; then
-  for svc in elektron-ppool-ui elektron-ppool; do
+for pool_pair in "elektron-ppool-ui elektron-ppool data/ppool-DB" "elektron-pool-ui elektron-pool data/pool-DB"; do
+  set -- $pool_pair
+  pair_ui_svc="$1" pair_svc="$2" pair_data_dir="$3"
+  if [ "$INSTALL_POOL" = "true" ] && [ "$pair_svc" = "$POOL_SVC" ]; then
+    continue   # this is the currently selected pool -- leave it running
+  fi
+  for svc in "$pair_ui_svc" "$pair_svc"; do
     if docker compose ps -a --format '{{.Service}}' 2>/dev/null | grep -qx "$svc"; then
-      log "INSTALL_POOL=false -- stopping and removing ${svc} (data in data/ppool-DB/ is kept) ..."
+      log "Removing ${svc} (not the currently selected pool -- data in ${pair_data_dir}/ is kept) ..."
       docker compose stop "$svc" 2>/dev/null || true
       docker compose rm -f "$svc" 2>/dev/null || true
     fi
   done
-fi
+done
 
 # ============================================================================
 # 10d. Disable the faucet, if INSTALL_FAUCET is (again) set to false
@@ -1408,7 +1602,7 @@ COMPOSE_PROFILE_ARGS=""
 BASE_SERVICES_LABEL="caddy"
 if [ "$INSTALL_POOL" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile pool"
-  BASE_SERVICES_LABEL="${BASE_SERVICES_LABEL}, ppool + ppool-ui"
+  BASE_SERVICES_LABEL="${BASE_SERVICES_LABEL}, ${POOL_SVC} + ${POOL_UI_SVC}"
 fi
 if [ "$INSTALL_FAUCET" = "true" ]; then
   COMPOSE_PROFILE_ARGS="${COMPOSE_PROFILE_ARGS} --profile faucet"
@@ -1453,10 +1647,10 @@ if command -v ufw >/dev/null 2>&1; then
     fi
     ufw allow 8333/tcp comment 'Elektron P2P seed' || true
     if [ "$INSTALL_POOL" = "true" ]; then
-      ufw allow 3333/tcp comment 'Elektron PPLNS Stratum' || true
+      ufw allow "${STRATUM_PORT}/tcp" comment 'Elektron mining pool Stratum' || true
     else
       # Close it symmetrically again, in case it was open from a previous run.
-      ufw delete allow 3333/tcp 2>/dev/null || true
+      ufw delete allow "${STRATUM_PORT}/tcp" 2>/dev/null || true
     fi
     ufw allow 80/tcp  || true
     ufw allow 443/tcp || true
@@ -1478,10 +1672,10 @@ if command -v ufw >/dev/null 2>&1; then
     fi
     ufw reload || true
   else
-    warn "FIREWALL_AUTO_CONFIGURE=false -- please open manually: ufw allow 8333/tcp$( [ "$INSTALL_POOL" = "true" ] && echo ' 3333/tcp' ) 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
+    warn "FIREWALL_AUTO_CONFIGURE=false -- please open manually: ufw allow 8333/tcp$( [ "$INSTALL_POOL" = "true" ] && echo " ${STRATUM_PORT}/tcp" ) 80/tcp 443/tcp$( [ "$INSTALL_SEEDER" = "true" ] && echo ' 53/udp 53/tcp' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ' 50001/tcp 50002/tcp' )"
   fi
 else
-  warn "ufw not found -- please open ports 8333, 80, 443$( [ "$INSTALL_POOL" = "true" ] && echo ', 3333' )$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manually in your provider's network firewall panel, if it has one."
+  warn "ufw not found -- please open ports 8333, 80, 443$( [ "$INSTALL_POOL" = "true" ] && echo ", ${STRATUM_PORT}" )$( [ "$INSTALL_SEEDER" = "true" ] && echo ', 53 (udp+tcp)' )$( [ "$INSTALL_MEMPOOL" = "true" ] && echo ', 50001, 50002' ) manually in your provider's network firewall panel, if it has one."
 fi
 FIREWALL_PORT_COUNT=3
 [ "$INSTALL_POOL" = "true" ] && FIREWALL_PORT_COUNT=$((FIREWALL_PORT_COUNT + 1))
@@ -1503,9 +1697,10 @@ GENERATED_AT="$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
 INSTALLED_WALLETS_LABEL=""
 INSTALLED_WALLETS_VERB="is"
 INSTALLED_WALLET_ENV_REFS=""
-if [ "$INSTALL_POOL" = "true" ]; then
+# POOL_TYPE=pool (solo pool) has no pool wallet at all.
+if [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; then
   INSTALLED_WALLETS_LABEL="the pool wallet"
-  INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} and in ${STACK_DIR}/elektron-net-ppool/.env (field WALLET_PASSPHRASE)"
+  INSTALLED_WALLET_ENV_REFS="${INSTALLED_WALLET_ENV_REFS} and in ${STACK_DIR}/${POOL_REPO}/.env (field WALLET_PASSPHRASE)"
 fi
 if [ "$INSTALL_FAUCET" = "true" ]; then
   if [ -n "$INSTALLED_WALLETS_LABEL" ]; then
@@ -1560,7 +1755,7 @@ cat <<SUMMARY
  Node (P2P seed):     ${NODE_DOMAIN}:8333
  Server IPv4:          ${SERVER_IP}
  Server IPv6 (detected/used): ${SERVER_IPV6}
- Pool dashboard (PPLNS mining pool, optional):$( [ "$INSTALL_POOL" = "true" ] && echo " active -- https://${POOL_DOMAIN}" || echo " not installed (INSTALL_POOL=true to enable)" )
+ Pool dashboard (optional, POOL_TYPE=${POOL_TYPE}):$( [ "$INSTALL_POOL" = "true" ] && echo " active -- https://${POOL_DOMAIN}" || echo " not installed (INSTALL_POOL=true to enable)" )
  Faucet (optional):$( [ "$INSTALL_FAUCET" = "true" ] && echo " active -- https://${FAUCET_DOMAIN}" || echo " not installed (INSTALL_FAUCET=true to enable)" )
 $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_ADMIN_SUMMARY
  Faucet admin:          https://${FAUCET_DOMAIN}/admin.php
@@ -1591,13 +1786,13 @@ $( [ "$INSTALL_MEMPOOL" = "true" ] && cat <<MEMPOOL_SUMMARY
 MEMPOOL_SUMMARY
 )
 
- Pool wallet address:   $( [ "$INSTALL_POOL" = "true" ] && echo "${POOL_ADDR}" || echo "(pool not installed)" )
+ Pool wallet address:   $( if [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; then echo "${POOL_ADDR}"; elif [ "$INSTALL_POOL" = "true" ]; then echo "(solo pool -- miners are paid directly to their own address, no pool wallet)"; else echo "(pool not installed)"; fi )
  Faucet wallet address: $( [ "$INSTALL_FAUCET" = "true" ] && echo "${FAUCET_ADDR}" || echo "(faucet not installed)" )
 
-$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_DUMP_SUMMARY
+$( { { [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ]; } || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_DUMP_SUMMARY
  Full private-key export of the installed wallets (legacy dump or
  descriptor fallback, depending on what was supported):
-$( [ "$INSTALL_POOL" = "true" ] && echo "   ${POOL_WALLET_DUMP_HOST}" )
+$( [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && echo "   ${POOL_WALLET_DUMP_HOST}" )
 $( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${FAUCET_WALLET_DUMP_HOST}" )
  (chmod 600, created once the first time each wallet was set up -- not
  overwritten on reruns. This is the actual recovery basis in case the
@@ -1611,7 +1806,7 @@ WALLET_DUMP_SUMMARY
 
    RPC username (node):          ${RPC_USER}
    RPC password (node):          ${RPC_PASSWORD}
-$( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_CREDS
+$( [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && cat <<POOL_CREDS
    Pool JWT_SECRET:              ${JWT_SECRET}
    Pool wallet passphrase:       ${POOL_WALLET_PASSPHRASE}
 POOL_CREDS
@@ -1639,7 +1834,7 @@ MEMPOOL_CREDS
  ----------------------------------------------------------------------------
 
  NEXT STEPS:
-$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<PREPAID_NEXT
+$( [ -n "$INSTALLED_WALLETS_LABEL" ] && cat <<PREPAID_NEXT
  - Fund the wallet address(es) above from your prepaid balance with ELEK
    (keep the hot wallet small).
 PREPAID_NEXT
@@ -1652,15 +1847,15 @@ $( [ "$INSTALL_FAUCET" = "true" ] && cat <<FAUCET_NEXT
  - Fill in the hCaptcha keys if they were left blank when running the script.
 FAUCET_NEXT
 )
-$( [ "$INSTALL_POOL" = "true" ] && cat <<POOL_NEXT
- - elektron-net-ppool/.env: keep PAYOUT_DRY_RUN=true until you've checked
+$( [ "$INSTALL_POOL" = "true" ] && [ "$POOL_TYPE" = "ppool" ] && cat <<POOL_NEXT
+ - ${POOL_REPO}/.env: keep PAYOUT_DRY_RUN=true until you've checked
    a simulated payout in the log, then switch it to false and run
-   'docker compose --profile pool up -d --force-recreate elektron-ppool'.
+   'docker compose --profile pool up -d --force-recreate ${POOL_SVC}'.
 POOL_NEXT
 )
  - If not done yet: create AAAA records at your DNS provider
    (${NODE_DOMAIN}$( [ "$INSTALL_POOL" = "true" ] && echo ", ${POOL_DOMAIN}" )$( [ "$INSTALL_FAUCET" = "true" ] && echo ", ${FAUCET_DOMAIN}" ) -> ${SERVER_IPV6}).
-   P2P (8333)$( [ "$INSTALL_POOL" = "true" ] && echo ", Stratum (3333)" ) and Caddy (80/443) are already
+   P2P (8333)$( [ "$INSTALL_POOL" = "true" ] && echo ", Stratum (${STRATUM_PORT})" ) and Caddy (80/443) are already
    published dual-stack -- once the AAAA record exists, everything works
    over IPv6 too.
  - Optional, but recommended for a public seed node: set reverse DNS
@@ -1678,8 +1873,9 @@ SEEDER_NEXT
  Note on the private network IP (provider VLAN/vSwitch, e.g. Hetzner's):
  not currently needed by this stack -- all containers communicate
  internally over Docker's own networks. Only becomes relevant if you
- later, say, move the wallet to a second, isolated server (see the
- ppool README, section 9, "network-isolated wallet server").
+ later, say, move the pool wallet to a second, isolated server (POOL_TYPE=ppool
+ only -- see the elektron-net-ppool README, section 9, "network-isolated
+ wallet server"; POOL_TYPE=pool has no pool wallet to isolate).
 
  ----------------------------------------------------------------------------
  USEFUL COMMANDS (see also the README, "Updating the stack"):
@@ -1700,13 +1896,13 @@ SEEDER_NEXT
  This summary gets rewritten here on every (re-)run of the script:
  ${SUMMARY_FILE}
  The underlying raw data also lives permanently in:
-$( [ "$INSTALL_POOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-ppool/.env" )
+$( [ "$INSTALL_POOL" = "true" ] && echo "   ${STACK_DIR}/${POOL_REPO}/.env" )
 $( [ "$INSTALL_FAUCET" = "true" ] && echo "   ${STACK_DIR}/elektron-net-faucet/.env" )
-   ${STACK_DIR}/elektron-net/bitcoin.conf  (rpcauth hash, not the plaintext password)
+   ${STACK_DIR}/elektron-net/elektron.conf  (rpcauth hash, not the plaintext password)
 $( [ "$INSTALL_MEMPOOL" = "true" ] && echo "   ${STACK_DIR}/elektron-net-mempool/.env" )
  (all chmod 600, don't commit them.)
 
-$( { [ "$INSTALL_POOL" = "true" ] || [ "$INSTALL_FAUCET" = "true" ]; } && cat <<WALLET_WARNING
+$( [ -n "$INSTALLED_WALLETS_LABEL" ] && cat <<WALLET_WARNING
  IMPORTANT: encryptwallet is a one-way operation -- ${INSTALLED_WALLETS_LABEL} ${INSTALLED_WALLETS_VERB} now encrypted. The passphrases above live ONLY in this file${INSTALLED_WALLET_ENV_REFS} -- plus in the complete private-key export further up. There is no
  other copy, not even on the blockchain. If you lose one of these
  files, the respective wallet balance can no longer be spent.
