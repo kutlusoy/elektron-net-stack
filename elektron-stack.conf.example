@@ -56,18 +56,21 @@ INSTALL_POOL=true
 # type's containers on the next run; its data directory is kept untouched.
 POOL_TYPE=ppool
 POOL_WALLET_NAME=pool
+
 # leave empty to auto-generate. Encrypts the pool wallet -- without this,
 # any real payout fails as soon as PAYOUT_DRY_RUN=false is set.
 # (POOL_TYPE=ppool only -- POOL_TYPE=pool has no pool wallet.)
 POOL_WALLET_PASSPHRASE=
 WALLET_UNLOCK_SECONDS=60
 POOL_IDENTIFIER=Elektron PPLNS Pool
+
 # Optional -- embedded on-chain as a dedicated OP_RETURN output in every
 # block this pool finds, alongside POOL_IDENTIFIER (see
 # doc-elektron/guideline-pool-identity-op-return.md in the pool repo).
 # Leave empty to skip that output entirely. A bare domain (no http(s)://)
 # gets "https://" prefixed automatically by the install script.
 POOL_URL=https://pplns.elektron-net.org
+
 # Optional field inherited from the upstream public-pool fork, present in
 # both POOL_TYPE values' .env.example. Currently ignored by either
 # elektron-net-ppool or elektron-net-pool: Elektron's per-block UTXO
@@ -76,6 +79,7 @@ POOL_URL=https://pplns.elektron-net.org
 # ... is ignored"). Kept here only so a value survives should this ever
 # get implemented, or for a custom pool fork that does read it.
 DEV_FEE_ADDRESS=
+
 # The following, through JWT_SECRET, apply to POOL_TYPE=ppool only.
 POOL_FEE_PERCENT=1.0
 PPLNS_WINDOW_MINUTES=90
@@ -123,9 +127,11 @@ FAUCET_HOURLY_BUDGET=0.1
 FAUCET_PER_ADDR_COOLDOWN_H=24
 FAUCET_PER_IP_COOLDOWN_H=1
 FAUCET_DEFAULT_LANG=de
+
 # Optional -- block explorer link shown after a successful claim
 # (e.g. https://explorer.example.com):
-FAUCET_EXPLORER_URL=
+FAUCET_EXPLORER_URL=https://mempool.elektron-net.org
+
 # Minutes between checks whether the faucet's own payouts are still
 # unconfirmed in the mempool because the node's current minimum fee
 # (mempoolminfee) has since risen above what was originally paid -- if so,
@@ -157,13 +163,15 @@ MEMPOOL_DB_USER=mempool
 # leave empty to auto-generate:
 MEMPOOL_DB_PASS=
 MEMPOOL_DB_ROOT_PASS=
+
 # without -txindex: backfilling old blocks needs a full block-file access
 # per block -- keep this small, see elektron-net-mempool/docker-compose.yml
 MEMPOOL_INDEXING_BLOCKS_AMOUNT=1000
+
 # true = enable the "Acceleration" menu item (dashboard) AND the "Boost"
 # button on the tx page in the explorer frontend. Both only link out to
 # mempool.space's own (paid) fee-acceleration service -- a plain outbound
 # HTTPS request to SERVICES_API, no additional port/firewall rule needed.
 # false = menu item and button stay hidden, like the original Mempool
 # frontend without these flags.
-MEMPOOL_ACCELERATOR=true
+MEMPOOL_ACCELERATOR=false
