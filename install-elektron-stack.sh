@@ -631,7 +631,7 @@ clone_or_skip "elektron-net"
 # together.
 [ "$INSTALL_MEMPOOL" = "true" ] && clone_or_skip "elektron-net-electrs"
 
-mkdir -p caddy data/elektron-net external-wallets
+mkdir -p caddy data/elektron-net data/utxo-snapshot external-wallets
 [ "$INSTALL_POOL" = "true" ] && mkdir -p "$POOL_DB_DIR"
 [ "$INSTALL_FAUCET" = "true" ] && mkdir -p data/faucet-db data/faucet-config
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
@@ -729,6 +729,15 @@ set -e
 # everything else under /data and leave that one path alone.
 chown elektron:elektron /data
 find /data -mindepth 1 -maxdepth 1 ! -name elektron.conf -exec chown -R elektron:elektron {} +
+# /snapshot is a separate mount (shared with elektron-electrs, see
+# doc/utxo-snapshot-bootstrap-plan.md in elektron-net-electrs) -- the daemon
+# writes dumptxoutset output here once the mempool explorer is installed, so
+# it needs to be writable by the same user the daemon actually runs as, same
+# as everything under /data above. A no-op (mkdir -p is safe) when the
+# mempool explorer is not installed, since the bind mount is always present.
+if [ -d /snapshot ]; then
+  chown elektron:elektron /snapshot
+fi
 exec gosu elektron "$@"
 ENTRYPOINT_EOF
 chmod +x elektron-net/docker-entrypoint.sh
@@ -815,6 +824,17 @@ services:
     volumes:
       - "./elektron-net/elektron.conf:/data/elektron.conf:ro"
       - "./data/elektron-net:/data"
+      # Shared with elektron-electrs at the same path (see the electrs
+      # service below and doc/utxo-snapshot-bootstrap-plan.md in
+      # elektron-net-electrs) -- dumptxoutset writes here from the daemon's
+      # side, electrs reads the same file back from its own /snapshot mount.
+      # The mandatory pruning on this fork (MANDATORY_PRUNE_DEPTH) means a
+      # fresh electrs index can no longer sync from genesis once the chain
+      # has pruned past height 0, so this bootstrap path is not optional
+      # once the chain is older than ~137 days -- present unconditionally
+      # here since it costs nothing when the mempool explorer is not
+      # installed (electrs never starts, the directory just sits unused).
+      - "./data/utxo-snapshot:/snapshot"
 
 COMPOSE_EOF
 
@@ -996,6 +1016,10 @@ cat >> docker-compose.yml <<'COMPOSE_EOF'
     volumes:
       - "./elektron-net-electrs/electrs.toml:/etc/electrs/config.toml:ro"
       - "./data/electrs:/data"
+      # Same host directory as elektron-net's /snapshot mount above, at the
+      # same in-container path -- utxo_snapshot_dir in electrs.toml below
+      # points here so electrs can read back what the daemon just wrote.
+      - "./data/utxo-snapshot:/snapshot"
 
   elektron-mempool-api:
     container_name: elektron-mempool-api
@@ -1379,6 +1403,14 @@ electrum_rpc_addr = "0.0.0.0:50001"
 
 # Index database, persisted via ./data/electrs
 db_dir = "/data"
+
+# Shared with the daemon at the same path (./data/utxo-snapshot on the
+# host, see docker-compose.yml) -- required once the node has pruned past
+# genesis (mandatory on this fork after ~137 days), since a fresh electrs
+# index can no longer replay history from height 0 at that point. Without
+# this, a first-time or wiped index fails hard instead of bootstrapping
+# from a UTXO snapshot; see doc/utxo-snapshot-bootstrap-plan.md.
+utxo_snapshot_dir = "/snapshot"
 
 log_filters = "INFO"
 ELECTRS_EOF
