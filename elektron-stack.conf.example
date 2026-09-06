@@ -62,13 +62,16 @@ POOL_WALLET_NAME=pool
 # (POOL_TYPE=ppool only -- POOL_TYPE=pool has no pool wallet.)
 POOL_WALLET_PASSPHRASE=
 WALLET_UNLOCK_SECONDS=60
+# Off-chain only: shown on the pool dashboard and served by the pool's own
+# GET /pool/identity endpoint. Never embedded in the coinbase -- same
+# single-payout-output attestation constraint as DEV_FEE_ADDRESS below
+# rules that out (see doc-elektron/fix-report-pool-identity-utxo-attestation.md
+# in either pool repo).
 POOL_IDENTIFIER=Elektron PPLNS Pool
 
-# Optional -- embedded on-chain as a dedicated OP_RETURN output in every
-# block this pool finds, alongside POOL_IDENTIFIER (see
-# doc-elektron/guideline-pool-identity-op-return.md in the pool repo).
-# Leave empty to skip that output entirely. A bare domain (no http(s)://)
-# gets "https://" prefixed automatically by the install script.
+# Optional -- off-chain only, same as POOL_IDENTIFIER above. Leave empty to
+# skip. A bare domain (no http(s)://) gets "https://" prefixed automatically
+# by the install script.
 POOL_URL=https://pplns.elektron-net.org
 
 # Optional field inherited from the upstream public-pool fork, present in
