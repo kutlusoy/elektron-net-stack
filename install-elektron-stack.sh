@@ -760,6 +760,15 @@ listen=1
 bind=0.0.0.0:8333
 maxconnections=125
 
+# elektrond auto-generates a fresh, unused "bitcoin.conf" in the datadir on
+# every first launch, no matter which file -conf actually points to (this
+# stack always uses "elektron.conf") -- without this, that self-inflicted
+# stray file trips elektrond's own "ignored config file" safety check and
+# it refuses to start at all, in a permanent restart loop. See doc-elektron
+# in the elektron-net repo for the underlying bug; this just prevents it
+# from ever blocking a fresh install here.
+allowignoredconf=1
+
 rpcbind=0.0.0.0
 rpcallowip=172.16.0.0/12
 rpcauth=${RPC_AUTH_LINE}
