@@ -101,6 +101,12 @@ POOL_IDENTIFIER="Elektron PPLNS Pool"
 # skip. Auto-gets "https://" prefixed if you enter a bare domain (either here
 # or at the prompt below).
 POOL_URL="https://pplns.elektron-net.org"
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md), used to discover
+# mempool explorer instances to report found blocks to. Not per-operator-
+# forked like the pools-v2.json URLs below, so change this only if you run
+# your own fork of the registry itself.
+MEMPOOL_REGISTRY_URL="https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main"
 POOL_FEE_PERCENT="1.0"
 PPLNS_WINDOW_MINUTES="90"
 MIN_PAYOUT_THRESHOLD_SATS="100000"
@@ -178,6 +184,7 @@ MEMPOOL_DB_PASS=""
 MEMPOOL_DB_ROOT_PASS=""
 MEMPOOL_INDEXING_BLOCKS_AMOUNT="1000"         # small positive window -- see elektron-net-mempool/docker-compose.yml comment for why (no -txindex, and never 0)
 MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-page "Boost" button in the explorer frontend; both just link out to mempool.space's own accelerator service over outbound HTTPS, no inbound port/firewall change needed
+MEMPOOL_POOL_REGISTRY_URL="https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main"  # same registry as MEMPOOL_REGISTRY_URL above, not per-operator-forked
 
 # Every variable a config file / prompt round is allowed to touch -- keep in
 # sync with the block above. Doubles as the whitelist for config-file keys
@@ -185,7 +192,7 @@ MEMPOOL_ACCELERATOR="true"                    # true = "Acceleration" menu + tx-
 CONFIG_VARS="STACK_DIR GITHUB_USER AUTO_UPDATE_REPOS SERVER_IP SERVER_IPV6 NODE_DOMAIN POOL_DOMAIN
 FAUCET_DOMAIN CADDY_EMAIL RPC_USER FIREWALL_AUTO_CONFIGURE INSTALL_POOL POOL_TYPE POOL_WALLET_NAME
 POOL_WALLET_PASSPHRASE WALLET_UNLOCK_SECONDS
-POOL_IDENTIFIER POOL_URL DEV_FEE_ADDRESS POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
+POOL_IDENTIFIER POOL_URL MEMPOOL_REGISTRY_URL DEV_FEE_ADDRESS POOL_FEE_PERCENT PPLNS_WINDOW_MINUTES MIN_PAYOUT_THRESHOLD_SATS
 PAYOUT_INTERVAL_MINUTES PAYOUT_CONFIRMATIONS_REQUIRED PAYOUT_DRY_RUN STRATUM_PORT
 API_PORT JWT_SECRET TELEGRAM_BOT_TOKEN TELEGRAM_BOT_USERNAME DISCORD_BOT_TOKEN
 DISCORD_BOT_CLIENTID DISCORD_BOT_GUILD_ID DISCORD_BOT_CHANNEL_ID
@@ -195,7 +202,7 @@ FAUCET_HCAPTCHA_SITE FAUCET_HCAPTCHA_SECRET FAUCET_TITLE FAUCET_MESSAGE FAUCET_A
 FAUCET_DAILY_BUDGET FAUCET_HOURLY_BUDGET FAUCET_PER_ADDR_COOLDOWN_H FAUCET_PER_IP_COOLDOWN_H
 FAUCET_DEFAULT_LANG FAUCET_EXPLORER_URL FAUCET_FEE_BUMP_INTERVAL_MIN
 INSTALL_SEEDER SEEDER_HOST SEEDER_NS SEEDER_MBOX SEEDER_DNS_PORT SEEDER_THREADS SEEDER_DNS_THREADS SEEDER_MIN_HEIGHT
-INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS MEMPOOL_DB_ROOT_PASS MEMPOOL_INDEXING_BLOCKS_AMOUNT MEMPOOL_ACCELERATOR"
+INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS MEMPOOL_DB_ROOT_PASS MEMPOOL_INDEXING_BLOCKS_AMOUNT MEMPOOL_ACCELERATOR MEMPOOL_POOL_REGISTRY_URL"
 
 # ============================================================================
 # CLI args: --config FILE, --yes/-y (skip prompts), --help/-h
@@ -1162,6 +1169,10 @@ NETWORK=mainnet
 API_SECURE=false
 POOL_IDENTIFIER="${POOL_IDENTIFIER}"
 POOL_URL=${POOL_URL}
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md), used to discover
+# mempool explorer instances to report found blocks to.
+MEMPOOL_REGISTRY_URL=${MEMPOOL_REGISTRY_URL}
 # Currently ignored by elektron-net-ppool (see its own README) -- kept for
 # upstream public-pool compatibility only, has no effect on payouts.
 DEV_FEE_ADDRESS=${DEV_FEE_ADDRESS}
@@ -1232,6 +1243,10 @@ NETWORK=mainnet
 API_SECURE=false
 POOL_IDENTIFIER="${POOL_IDENTIFIER}"
 POOL_URL=${POOL_URL}
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md), used to discover
+# mempool explorer instances to report found blocks to.
+MEMPOOL_REGISTRY_URL=${MEMPOOL_REGISTRY_URL}
 
 HOBBY_MINER_USER_AGENTS=NerdMiner,NerdminerV2,nerdminer,NerdAxe,NerdQAxe
 HOBBY_MINER_DIFFICULTY=0.0001
@@ -1344,6 +1359,12 @@ MEMPOOL_INDEXING_BLOCKS_AMOUNT=${MEMPOOL_INDEXING_BLOCKS_AMOUNT}
 # identifier can't be embedded in the coinbase scriptSig here.
 MEMPOOL_POOLS_JSON_URL=https://raw.githubusercontent.com/${GITHUB_USER}/elektron-net-mempool/main/pools-v2.json
 MEMPOOL_POOLS_JSON_TREE_URL=https://api.github.com/repos/${GITHUB_USER}/elektron-net-mempool/git/trees/main
+
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md) -- unlike the two pools
+# JSON URLs above, this is not per-operator-forked, so it is not templated
+# with GITHUB_USER.
+MEMPOOL_POOL_REGISTRY_URL=${MEMPOOL_POOL_REGISTRY_URL}
 
 # --- Database (own dedicated MariaDB instance, elektron-mempool-db) ---
 DATABASE_ENABLED=true

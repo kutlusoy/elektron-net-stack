@@ -339,7 +339,7 @@ What you can pre-set in `elektron-stack.conf` - the complete list is in
 | Node/firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
 | Repo updates | `AUTO_UPDATE_REPOS` (blank/`false` = never auto-update, see "Updating the stack") |
 | Pool (optional, on by default) | `INSTALL_POOL` (default `true`, Compose profile "pool"; disabling it also closes the Stratum port again), `POOL_TYPE` (`ppool` or `pool`, see ["Pool type: ppool vs. pool"](#pool-type-ppool-vs-pool); only one is ever installed) |
-| Pool behavior (both types) | `POOL_IDENTIFIER`, `POOL_URL` (optional, both shown on the pool dashboard only, see ["Pool identity (dashboard only)"](#pool-identity-dashboard-only)), `DEV_FEE_ADDRESS`, `STRATUM_PORT`, `API_PORT` |
+| Pool behavior (both types) | `POOL_IDENTIFIER`, `POOL_URL` (optional, both shown on the pool dashboard only, see ["Pool identity (dashboard only)"](#pool-identity-dashboard-only)), `MEMPOOL_REGISTRY_URL`, `DEV_FEE_ADDRESS`, `STRATUM_PORT`, `API_PORT` |
 | Pool behavior (`POOL_TYPE=ppool` only) | `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN` |
 | Pool wallet (`POOL_TYPE=ppool` only -- `pool` has no pool wallet) | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (blank = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool notifications (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
@@ -890,6 +890,15 @@ on-chain way to do this without a node consensus change.
 - Prompted interactively during install (and any rerun) right after the
   pool dashboard domain; pre-fillable via `elektron-stack.conf` like every
   other setting (see the table above).
+
+`MEMPOOL_REGISTRY_URL` (both pool `.env` and the Mempool Explorer's `.env`,
+default points at `github.com/kutlusoy/elektron-net-registry`) is a separate,
+newer mechanism for the same underlying goal: pools and mempool explorer
+instances read a shared, plain-text list of each other and report/verify
+found blocks over plain HTTP, no wallet or on-chain data involved. See
+`doc-elektron/guideline-pool-registry-reporting.md` in `elektron-net-pool`,
+`elektron-net-ppool`, or `elektron-net-mempool` for the full design; not yet
+merged to any of those repos' `main` at the time of this note.
 
 ## Seeder (optional, testing phase)
 

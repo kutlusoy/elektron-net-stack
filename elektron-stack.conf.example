@@ -74,6 +74,12 @@ POOL_IDENTIFIER=Elektron PPLNS Pool
 # by the install script.
 POOL_URL=https://pplns.elektron-net.org
 
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md), used to discover
+# mempool explorer instances to report found blocks to. Not per-operator-
+# forked, so change this only if you run your own fork of the registry.
+MEMPOOL_REGISTRY_URL=https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main
+
 # Optional field inherited from the upstream public-pool fork, present in
 # both POOL_TYPE values' .env.example. Currently ignored by either
 # elektron-net-ppool or elektron-net-pool: Elektron's per-block UTXO
@@ -178,3 +184,7 @@ MEMPOOL_INDEXING_BLOCKS_AMOUNT=1000
 # false = menu item and button stay hidden, like the original Mempool
 # frontend without these flags.
 MEMPOOL_ACCELERATOR=false
+
+# Same registry as MEMPOOL_REGISTRY_URL in the pool section above, not
+# per-operator-forked -- see doc-elektron/guideline-pool-registry-reporting.md.
+MEMPOOL_POOL_REGISTRY_URL=https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main
