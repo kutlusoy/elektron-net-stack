@@ -649,6 +649,12 @@ mkdir -p caddy data/elektron-net data/utxo-snapshot external-wallets
 [ "$INSTALL_FAUCET" = "true" ] && mkdir -p data/faucet-db data/faucet-config
 [ "$INSTALL_SEEDER" = "true" ] && mkdir -p data/elektron-net-seeder
 [ "$INSTALL_MEMPOOL" = "true" ] && mkdir -p data/mempool-db data/mempool-cache data/electrs
+# elektron-mempool-api's container runs as uid 1000 (docker/backend/Dockerfile),
+# but this script (and therefore the mkdir above) usually runs as root -- without
+# this, the backend can't write its own cache files (tmp-cache.json, the RBF
+# cache, or the local pool-registry cache) and silently keeps losing them, so
+# fix ownership every run rather than only on first creation.
+[ "$INSTALL_MEMPOOL" = "true" ] && chown -R 1000:1000 data/mempool-cache
 
 # ============================================================================
 # 1b. elektron-net-mempool: prepare the Docker build context
