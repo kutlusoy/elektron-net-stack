@@ -339,7 +339,7 @@ What you can pre-set in `elektron-stack.conf` - the complete list is in
 | Node/firewall | `RPC_USER`, `FIREWALL_AUTO_CONFIGURE` |
 | Repo updates | `AUTO_UPDATE_REPOS` (blank/`false` = never auto-update, see "Updating the stack") |
 | Pool (optional, on by default) | `INSTALL_POOL` (default `true`, Compose profile "pool"; disabling it also closes the Stratum port again), `POOL_TYPE` (`ppool` or `pool`, see ["Pool type: ppool vs. pool"](#pool-type-ppool-vs-pool); only one is ever installed) |
-| Pool behavior (both types) | `POOL_IDENTIFIER`, `POOL_URL` (optional, both shown on the pool dashboard only, see ["Pool identity (dashboard only)"](#pool-identity-dashboard-only)), `MEMPOOL_REGISTRY_URL`, `DEV_FEE_ADDRESS`, `STRATUM_PORT`, `API_PORT` |
+| Pool behavior (both types) | `POOL_IDENTIFIER`, `POOL_URL` (optional, shown on the pool dashboard and reported network-wide, see ["Pool identity (dashboard + network-wide attribution)"](#pool-identity-dashboard--network-wide-attribution)), `MEMPOOL_REGISTRY_URL`, `DEV_FEE_ADDRESS`, `STRATUM_PORT`, `API_PORT` |
 | Pool behavior (`POOL_TYPE=ppool` only) | `POOL_FEE_PERCENT`, `PPLNS_WINDOW_MINUTES`, `MIN_PAYOUT_THRESHOLD_SATS`, `PAYOUT_INTERVAL_MINUTES`, `PAYOUT_CONFIRMATIONS_REQUIRED`, `PAYOUT_DRY_RUN` |
 | Pool wallet (`POOL_TYPE=ppool` only -- `pool` has no pool wallet) | `POOL_WALLET_NAME`, `POOL_WALLET_PASSPHRASE` (blank = auto), `WALLET_UNLOCK_SECONDS` |
 | Pool notifications (optional) | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_BOT_USERNAME`, `DISCORD_BOT_TOKEN`, `DISCORD_BOT_CLIENTID`, `DISCORD_BOT_GUILD_ID`, `DISCORD_BOT_CHANNEL_ID` |
@@ -867,18 +867,23 @@ Switching `POOL_TYPE` on an existing install (with `INSTALL_POOL` staying
 data directory (`data/ppool-DB/` or `data/pool-DB/`) is always kept, so
 switching back later doesn't lose anything.
 
-## Pool identity (dashboard only)
+## Pool identity (dashboard + network-wide attribution)
 
 `POOL_IDENTIFIER` (pool name) and `POOL_URL` (pool website, optional) are
-shown on the pool dashboard's splash page, for **either** `POOL_TYPE`. They
-are off-chain only - an earlier revision of this pool software embedded them
-as extra `OP_RETURN` outputs in the coinbase, but that broke the node's
-per-block UTXO attestation (any additional coinbase output changes the
-coinbase txid the node validates against, so every block carrying one was
-rejected). Both pool repos reverted that; see
+shown on the pool dashboard's splash page, for **either** `POOL_TYPE`, and
+are also reported to every mempool explorer instance listed in the shared
+registry (`MEMPOOL_REGISTRY_URL`, see below) whenever this pool finds a
+block, so the block gets attributed to it network-wide, not just on this
+pool's own dashboard. They are never written on-chain - an earlier revision
+of this pool software embedded them as extra `OP_RETURN` outputs in the
+coinbase, but that broke the node's per-block UTXO attestation (any
+additional coinbase output changes the coinbase txid the node validates
+against, so every block carrying one was rejected). Both pool repos
+reverted that; see
 `doc-elektron/fix-report-pool-identity-utxo-attestation.md` in
 `elektron-net-ppool` or `elektron-net-pool` for the full story. There is no
-on-chain way to do this without a node consensus change.
+on-chain way to do this without a node consensus change - the registry and
+HTTP report/confirm protocol described below is the off-chain replacement.
 
 - Both fields are optional and independent - leave `POOL_URL` blank to skip
   it; `POOL_IDENTIFIER` falls back to a built-in default if left blank
@@ -892,13 +897,12 @@ on-chain way to do this without a node consensus change.
   other setting (see the table above).
 
 `MEMPOOL_REGISTRY_URL` (both pool `.env` and the Mempool Explorer's `.env`,
-default points at `github.com/kutlusoy/elektron-net-registry`) is a separate,
-newer mechanism for the same underlying goal: pools and mempool explorer
-instances read a shared, plain-text list of each other and report/verify
+default points at `github.com/kutlusoy/elektron-net-registry`) points at the
+shared, plain-text registry used for this reporting: pools and mempool
+explorer instances each read the other's list from it and report/verify
 found blocks over plain HTTP, no wallet or on-chain data involved. See
 `doc-elektron/guideline-pool-registry-reporting.md` in `elektron-net-pool`,
-`elektron-net-ppool`, or `elektron-net-mempool` for the full design; not yet
-merged to any of those repos' `main` at the time of this note.
+`elektron-net-ppool`, or `elektron-net-mempool` for the full design.
 
 ## Seeder (optional, testing phase)
 

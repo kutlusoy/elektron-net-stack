@@ -90,16 +90,18 @@ POOL_WALLET_NAME="pool"                       # wallet name on the node for pool
 # run, then re-locks it immediately (see wallet-rpc.service.ts).
 POOL_WALLET_PASSPHRASE=""
 WALLET_UNLOCK_SECONDS="60"
-# Off-chain only: shown on the pool dashboard and served by the pool's own
-# GET /pool/identity endpoint. Never embedded in the coinbase -- any extra
+# Shown on the pool dashboard, served by the pool's own GET /pool/identity
+# endpoint, and reported to every mempool explorer instance in the shared
+# registry below (MEMPOOL_REGISTRY_URL) so found blocks get attributed to
+# this pool network-wide. Never embedded in the coinbase -- any extra
 # coinbase output (even a zero-value OP_RETURN) breaks the node's per-block
 # UTXO attestation, so there is no on-chain way to do this without a node
 # consensus change (see elektron-net-ppool/elektron-net-pool
 # doc-elektron/fix-report-pool-identity-utxo-attestation.md).
 POOL_IDENTIFIER="Elektron PPLNS Pool"
-# Optional. Off-chain only, same as POOL_IDENTIFIER above -- leave empty to
-# skip. Auto-gets "https://" prefixed if you enter a bare domain (either here
-# or at the prompt below).
+# Optional, same as POOL_IDENTIFIER above (dashboard + network-wide block
+# attribution) -- leave empty to skip. Auto-gets "https://" prefixed if you
+# enter a bare domain (either here or at the prompt below).
 POOL_URL="https://pplns.elektron-net.org"
 # Shared, network-wide pool/mempool registry (see
 # doc-elektron/guideline-pool-registry-reporting.md), used to discover
@@ -317,8 +319,8 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   if [ "$INSTALL_POOL" = "true" ]; then
     ask POOL_TYPE "Pool type -- 'ppool' (shared PPLNS pool, own payout ledger + pool wallet, elektron-net-ppool) or 'pool' (solo pool, miners are paid directly to their own address, no pool wallet, elektron-net-pool)"
     ask POOL_DOMAIN "Domain for the pool dashboard"
-    ask POOL_IDENTIFIER "Pool name shown on the dashboard (off-chain only)"
-    ask POOL_URL "Pool URL shown on the dashboard (off-chain only, blank to skip)"
+    ask POOL_IDENTIFIER "Pool name shown on the dashboard and reported to mempool explorers"
+    ask POOL_URL "Pool URL shown on the dashboard and reported to mempool explorers (blank to skip)"
   fi
   ask_yes_no INSTALL_FAUCET "Install the faucet (elektron-net-faucet)?"
   if [ "$INSTALL_FAUCET" = "true" ]; then
