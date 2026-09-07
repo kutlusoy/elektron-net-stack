@@ -62,17 +62,25 @@ POOL_WALLET_NAME=pool
 # (POOL_TYPE=ppool only -- POOL_TYPE=pool has no pool wallet.)
 POOL_WALLET_PASSPHRASE=
 WALLET_UNLOCK_SECONDS=60
-# Off-chain only: shown on the pool dashboard and served by the pool's own
-# GET /pool/identity endpoint. Never embedded in the coinbase -- same
+# Shown on the pool dashboard, served by the pool's own GET /pool/identity
+# endpoint, and reported to every mempool explorer instance in the shared
+# registry below (MEMPOOL_REGISTRY_URL) so found blocks get attributed to
+# this pool network-wide. Never embedded in the coinbase -- same
 # single-payout-output attestation constraint as DEV_FEE_ADDRESS below
 # rules that out (see doc-elektron/fix-report-pool-identity-utxo-attestation.md
 # in either pool repo).
 POOL_IDENTIFIER=Elektron PPLNS Pool
 
-# Optional -- off-chain only, same as POOL_IDENTIFIER above. Leave empty to
-# skip. A bare domain (no http(s)://) gets "https://" prefixed automatically
-# by the install script.
+# Optional, same as POOL_IDENTIFIER above (dashboard + network-wide block
+# attribution). Leave empty to skip. A bare domain (no http(s)://) gets
+# "https://" prefixed automatically by the install script.
 POOL_URL=https://pplns.elektron-net.org
+
+# Shared, network-wide pool/mempool registry (see
+# doc-elektron/guideline-pool-registry-reporting.md), used to discover
+# mempool explorer instances to report found blocks to. Not per-operator-
+# forked, so change this only if you run your own fork of the registry.
+MEMPOOL_REGISTRY_URL=https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main
 
 # Optional field inherited from the upstream public-pool fork, present in
 # both POOL_TYPE values' .env.example. Currently ignored by either
@@ -178,3 +186,7 @@ MEMPOOL_INDEXING_BLOCKS_AMOUNT=1000
 # false = menu item and button stay hidden, like the original Mempool
 # frontend without these flags.
 MEMPOOL_ACCELERATOR=false
+
+# Same registry as MEMPOOL_REGISTRY_URL in the pool section above, not
+# per-operator-forked -- see doc-elektron/guideline-pool-registry-reporting.md.
+MEMPOOL_POOL_REGISTRY_URL=https://raw.githubusercontent.com/kutlusoy/elektron-net-registry/main
