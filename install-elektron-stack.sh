@@ -29,6 +29,9 @@
 #
 # Safe to re-run: existing clones/wallets are detected and skipped instead
 # of being recreated or overwritten.
+#
+# Updating a live install: ./install-elektron-stack.sh --update (see README,
+# "Updating the stack").
 
 set -euo pipefail
 
@@ -623,11 +626,12 @@ update_if_enabled() {
        elif git merge-base --is-ancestor HEAD "@{upstream}"; then
          log "$repo: new commits found, updating (fast-forward):"
          git log --oneline "HEAD..@{upstream}"
-         git pull --ff-only --quiet
+         git pull --ff-only --quiet \
+           || warn "$repo: update skipped, local changes clash with the new commits (see 'git -C $repo status'); building the current checkout instead."
        else
          warn "$repo: local branch has diverged from upstream (own commits?) -- skipping automatic update, please check manually."
        fi
-  )
+  ) || warn "$repo: update check failed (network or git error), building the current checkout instead."
 }
 
 clone_or_skip() {

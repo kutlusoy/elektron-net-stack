@@ -368,7 +368,7 @@ running it - see [Troubleshooting](#troubleshooting) at the very bottom.
 
 ## Updating the stack
 
-Three different situations, each with its own matching approach. Short
+Four different situations, each with its own matching approach. Short
 version first, details below:
 
 | What changed? | What to do? |
@@ -484,6 +484,67 @@ The database data lives in the bind mounts `./data/faucet-db` and
 `./data/mempool-db` respectively and survives the image update (MariaDB
 minor updates are backward-compatible; check their release notes first
 before a major version jump).
+
+### D) Full update with `--update` (recommended for security releases)
+
+```bash
+cd /opt/elektron-net-stack
+./install-elektron-stack.sh --update
+```
+
+Runs without prompts (implies `--yes`, uses your `elektron-stack.conf`) and:
+
+1. Backs up configs and secrets to `backups/update-<timestamp>/` (mode 700):
+   `elektron-stack.conf`, `docker-compose.yml`, `Caddyfile`, `elektron.conf`,
+   `electrs.toml`, every `.env` and `data/faucet-config`. Databases and
+   wallet files are **not** part of this backup, copy them yourself first
+   (see the checklist below).
+2. Updates every cloned repo via `git pull --ff-only`.
+3. Pulls fresh base images and rebuilds every service without the layer
+   cache, then pulls the ready-made images (Caddy, MariaDB). All builds
+   finish before any container is replaced, so a failed build leaves the
+   running stack untouched.
+4. Restarts the changed containers and checks that the faucet runs
+   PHP 8.3.36 or newer (CVE-2026-109618 / CVE-2026-109619); the run aborts
+   with an error otherwise.
+
+Data is preserved: databases, wallets and blockchain live in the bind
+mounts under `./data`, which the script never deletes, and existing
+passwords in the `.env` files are reused (the script refuses to continue if
+it would have to generate a new password for an already populated
+database). Manual edits to a `.env` file are overwritten on every run, so
+keep such changes in `elektron-stack.conf` instead.
+
+Without `--update`, the faucet is still always rebuilt with `--pull
+--no-cache`, and the node image with `--pull`.
+
+Recommended checklist, especially on a production server:
+
+```bash
+cd /opt/elektron-net-stack
+mkdir -p ~/bak && chmod 700 ~/bak
+cp -a CREDENTIALS.txt external-wallets elektron-stack.conf ~/bak/
+docker compose exec -T elektron-faucet-db sh -c 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > ~/bak/faucet-db.sql
+for d in elektron-net*/; do [ -d "$d/.git" ] && echo "$d $(git -C $d rev-parse HEAD)"; done > ~/bak/repo-heads.txt
+tmux new -s update          # the Rust builds (electrs, mempool) can take long
+./install-elektron-stack.sh --update
+docker compose ps
+docker compose exec elektron-faucet-app php -v
+```
+
+Copy the wallet directory of the node only while `elektron-net` is stopped.
+With several servers, update the least important one first and continue
+only when it runs correctly. To roll back, `git reset --hard` each repo to
+the hash in `repo-heads.txt`, restore the configs from
+`backups/update-<timestamp>/` and rerun the script without `--update`.
+
+If `/opt/elektron-net-stack` is not a git checkout, fetch the current
+script first:
+
+```bash
+curl -fsSLo install-elektron-stack.sh https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+chmod +x install-elektron-stack.sh
+```
 
 ### Everything at once (maintenance window)
 
@@ -1167,6 +1228,16 @@ only rebuild afterward.
   over all balances.
 
 ## Troubleshooting
+
+**`update skipped, local changes clash with the new commits` during `--update` / `AUTO_UPDATE_REPOS`** -
+a cloned repo has hand-made changes (for example `pools-v2.json` in
+`elektron-net-mempool`) that clash with new upstream commits. The script
+skips that repo, warns, and builds the current checkout; the other repos
+are updated normally and the data is untouched. To take the new commits
+anyway: compare with `git -C <repo> diff`, back up the file, then either
+`git -C <repo> checkout -- <file>` (change already upstream) or
+`git -C <repo> stash && git -C <repo> pull --ff-only && git -C <repo> stash pop`,
+and rerun `./install-elektron-stack.sh --update`.
 
 **`/usr/bin/env: 'bash\r': No such file or directory`** - the file has
 Windows line endings (`\r\n`), e.g. from a Windows editor or an upload
