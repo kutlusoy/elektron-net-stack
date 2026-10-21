@@ -211,10 +211,11 @@ INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS M
 # ============================================================================
 CONFIG_FILE=""
 ASSUME_YES=false
+UPDATE_MODE=false
 
 usage() {
   cat <<'USAGE_EOF'
-Usage: install-elektron-stack.sh [--config FILE] [--yes] [--help]
+Usage: install-elektron-stack.sh [--config FILE] [--yes] [--update] [--help]
 
   --config FILE   Load settings from FILE (KEY=VALUE per line, see
                   elektron-stack.conf.example). Values found there override
@@ -222,6 +223,10 @@ Usage: install-elektron-stack.sh [--config FILE] [--yes] [--help]
                   asked interactively unless --yes is given.
   --yes, -y       Never prompt -- use defaults / config-file values as-is.
                   Use this for unattended/CI runs.
+  --update        Update an existing install without prompts: pull all cloned
+                  repos (git pull --ff-only), pull fresh base images and
+                  rebuild every service without the layer cache. Implies --yes.
+                  Use this for security releases of PHP, Node, Debian etc.
   --help, -h      Show this help text and exit.
 
 If no --config is given, a file named elektron-stack.conf next to this
@@ -234,6 +239,7 @@ while [ $# -gt 0 ]; do
     --config) CONFIG_FILE="${2:-}"; shift 2 ;;
     --config=*) CONFIG_FILE="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=true; shift ;;
+    --update) UPDATE_MODE=true; ASSUME_YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
   esac
@@ -341,6 +347,13 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   fi
 else
   log "Non-interactive mode (--yes or no terminal) -- using defaults/config file without prompting."
+fi
+
+if [ "$UPDATE_MODE" = true ]; then
+  AUTO_UPDATE_REPOS="true"
+  BUILD_FLAGS="--pull --no-cache"
+else
+  BUILD_FLAGS="--pull"
 fi
 
 # POOL_URL needs a scheme to work as a clickable link in the pool dashboard --
@@ -1460,7 +1473,7 @@ fi
 # 9. Start the node first
 # ============================================================================
 log "Building and starting elektron-net ..."
-docker compose build --pull elektron-net
+docker compose build $BUILD_FLAGS elektron-net
 docker compose up -d elektron-net
 
 # `docker compose exec` runs as root by default (the Dockerfile has no
@@ -1703,10 +1716,15 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
   EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
 log "Building and starting the rest of the stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
+# The faucet always gets a fresh PHP base image and no layer cache (critical
+# PHP security releases, min. 8.3.36 after CVE-2026-109618/109619); with
+# --update every service is rebuilt that way and the stock images are pulled.
 if [ "$INSTALL_FAUCET" = "true" ]; then
-  # Fresh PHP base image and no layer cache: the faucet runs PHP, which gets
-  # critical security releases (min. 8.3.36 after CVE-2026-109618/109619).
   docker compose build --pull --no-cache elektron-faucet-app
+fi
+if [ "$UPDATE_MODE" = true ]; then
+  docker compose $COMPOSE_PROFILE_ARGS build $BUILD_FLAGS
+  docker compose $COMPOSE_PROFILE_ARGS pull --ignore-buildable
 fi
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
 
