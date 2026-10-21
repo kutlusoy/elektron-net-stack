@@ -32,3 +32,6 @@ elektron-stack.conf
 ZUGANGSDATEN.txt
 external-wallets/
 
+
+# Config/secret backups written by install-elektron-stack.sh --update
+backups/

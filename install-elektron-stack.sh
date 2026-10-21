@@ -590,6 +590,20 @@ done
 mkdir -p "$STACK_DIR"
 cd "$STACK_DIR"
 
+if [ "$UPDATE_MODE" = true ]; then
+  BACKUP_DIR="${STACK_DIR}/backups/update-$(date +%Y%m%d-%H%M%S)"
+  log "Backing up configs and secrets to ${BACKUP_DIR} ..."
+  umask 077
+  mkdir -p "$BACKUP_DIR"
+  for f in elektron-stack.conf docker-compose.yml .env caddy/Caddyfile elektron-net/elektron.conf \
+           elektron-net-faucet/.env elektron-net-ppool/.env elektron-net-pool/.env \
+           elektron-net-seeder/.env elektron-net-mempool/.env elektron-net-electrs/electrs.toml; do
+    [ -e "$f" ] && cp -a --parents "$f" "$BACKUP_DIR"/
+  done
+  [ -d data/faucet-config ] && cp -a --parents data/faucet-config "$BACKUP_DIR"/
+  true
+fi
+
 update_if_enabled() {
   # Only ever fast-forwards the CURRENTLY checked-out branch to its own
   # upstream tracking branch -- never force, never rebase, never touches
