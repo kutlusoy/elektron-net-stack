@@ -1229,12 +1229,13 @@ only rebuild afterward.
 
 ## Troubleshooting
 
-**`error: Your local changes to the following files would be overwritten by merge` during `--update` / `AUTO_UPDATE_REPOS`** -
+**`update skipped, local changes clash with the new commits` during `--update` / `AUTO_UPDATE_REPOS`** -
 a cloned repo has hand-made changes (for example `pools-v2.json` in
 `elektron-net-mempool`) that clash with new upstream commits. The script
-stops at that point before building anything, the running stack is
-untouched. Compare with `git -C <repo> diff`, back up the file, then
-either `git -C <repo> checkout -- <file>` (change already upstream) or
+skips that repo, warns, and builds the current checkout; the other repos
+are updated normally and the data is untouched. To take the new commits
+anyway: compare with `git -C <repo> diff`, back up the file, then either
+`git -C <repo> checkout -- <file>` (change already upstream) or
 `git -C <repo> stash && git -C <repo> pull --ff-only && git -C <repo> stash pop`,
 and rerun `./install-elektron-stack.sh --update`.
 
