@@ -1460,7 +1460,8 @@ fi
 # 9. Start the node first
 # ============================================================================
 log "Building and starting elektron-net ..."
-docker compose up -d --build elektron-net
+docker compose build --pull elektron-net
+docker compose up -d elektron-net
 
 # `docker compose exec` runs as root by default (the Dockerfile has no
 # USER directive -- only the container's own PID 1 gets dropped to the
@@ -1702,7 +1703,23 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
   EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
 log "Building and starting the rest of the stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  # Fresh PHP base image and no layer cache: the faucet runs PHP, which gets
+  # critical security releases (min. 8.3.36 after CVE-2026-109618/109619).
+  docker compose build --pull --no-cache elektron-faucet-app
+fi
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
+
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  FAUCET_PHP_VERSION="$(docker compose exec -T elektron-faucet-app php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+  if [ -z "$FAUCET_PHP_VERSION" ]; then
+    warn "Could not read the PHP version of elektron-faucet-app; please check it manually."
+  elif [ "$(printf '%s\n8.3.36\n' "$FAUCET_PHP_VERSION" | sort -V | head -n1)" != "8.3.36" ]; then
+    die "Faucet runs PHP ${FAUCET_PHP_VERSION}, which is vulnerable (CVE-2026-109618/109619). Update to 8.3.36 or newer."
+  else
+    log "Faucet PHP version: ${FAUCET_PHP_VERSION}"
+  fi
+fi
 
 # ============================================================================
 # 11b. Clean up the Docker build cache

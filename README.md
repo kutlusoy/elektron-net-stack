@@ -375,6 +375,7 @@ version first, details below:
 |---|---|
 | A setting in `elektron-stack.conf` (domain, hCaptcha key, payout parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
 | Source code of one of the repos (new version on GitHub) | `git pull` in that folder -> `docker compose up -d --build <service>` |
+| PHP security release (the faucet runs PHP) | `docker compose build --pull --no-cache elektron-faucet-app` -> `docker compose --profile faucet up -d elektron-faucet-app`. `install-elektron-stack.sh` does this on every run and aborts if the faucet's PHP is older than 8.3.36 |
 | Caddy or MariaDB image (upstream update) | `docker compose --profile pool --profile faucet --profile mempool pull caddy elektron-faucet-db elektron-mempool-db` -> `docker compose --profile pool --profile faucet --profile mempool up -d` |
 
 ### A) Just one setting changed
