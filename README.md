@@ -488,15 +488,37 @@ before a major version jump).
 ### D) Full update with `--update` (recommended for security releases)
 
 Always fetch the current script first, an old copy does not know `--update`
-or the newest fixes (the stack directory is usually not a git checkout):
+or the newest fixes (the stack directory is usually not a git checkout).
+Complete procedure, including backup:
 
 ```bash
 cd /opt/elektron-net-stack
-mkdir -p ~/bak && cp -a install-elektron-stack.sh ~/bak/install-elektron-stack.sh.$(date +%Y%m%d-%H%M%S)
-curl -fsSLo install-elektron-stack.sh.new https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
-bash -n install-elektron-stack.sh.new && grep -q UPDATE_MODE install-elektron-stack.sh.new \
-  && mv install-elektron-stack.sh.new install-elektron-stack.sh && chmod +x install-elektron-stack.sh
+
+# Backup
+mkdir -p ~/bak/pre-update && chmod 700 ~/bak
+cp -a install-elektron-stack.sh CREDENTIALS.txt external-wallets elektron-stack.conf docker-compose.yml caddy */.env data/faucet-config ~/bak/pre-update/ 2>/dev/null
+docker compose exec -T elektron-faucet-db sh -c 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > ~/bak/pre-update/faucet-db.sql
+ls -lh ~/bak/pre-update/faucet-db.sql            # must be larger than 0
+for d in elektron-net*/; do [ -d "$d/.git" ] && echo "$d $(git -C $d rev-parse HEAD)"; done > ~/bak/pre-update/repo-heads.txt
+
+# Fresh script
+curl -fsSLo install-elektron-stack.sh "https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh?$(date +%s)"
+chmod +x install-elektron-stack.sh
+grep -c UPDATE_MODE install-elektron-stack.sh    # must be larger than 0
+
+# Update
 ./install-elektron-stack.sh --update
+```
+
+`curl -f` aborts on an HTTP error instead of saving an error page, and the
+`?$(date +%s)` suffix avoids a stale cached copy on GitHub's side. Stop
+before the last line if one of the two checks is wrong. If the SSH session
+might drop during the long Rust builds (electrs, mempool), run the last
+step in the background instead:
+
+```bash
+nohup ./install-elektron-stack.sh --update > ~/update.log 2>&1 &
+tail -f ~/update.log
 ```
 
 The update runs without prompts (implies `--yes`, uses your `elektron-stack.conf`) and:
@@ -505,7 +527,7 @@ The update runs without prompts (implies `--yes`, uses your `elektron-stack.conf
    `elektron-stack.conf`, `docker-compose.yml`, `Caddyfile`, `elektron.conf`,
    `electrs.toml`, every `.env` and `data/faucet-config`. Databases and
    wallet files are **not** part of this backup, copy them yourself first
-   (see the checklist below).
+   (see the procedure above).
 2. Updates every cloned repo via `git pull --ff-only`.
 3. Pulls fresh base images and rebuilds every service without the layer
    cache, then pulls the ready-made images (Caddy, MariaDB). All builds
@@ -525,28 +547,17 @@ keep such changes in `elektron-stack.conf` instead.
 Without `--update`, the faucet is still always rebuilt with `--pull
 --no-cache`, and the node image with `--pull`.
 
-Recommended checklist, especially on a production server:
+After the run, check:
 
 ```bash
-cd /opt/elektron-net-stack
-mkdir -p ~/bak && chmod 700 ~/bak
-cp -a CREDENTIALS.txt external-wallets elektron-stack.conf ~/bak/
-docker compose exec -T elektron-faucet-db sh -c 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > ~/bak/faucet-db.sql
-for d in elektron-net*/; do [ -d "$d/.git" ] && echo "$d $(git -C $d rev-parse HEAD)"; done > ~/bak/repo-heads.txt
-tmux new -s update          # the Rust builds (electrs, mempool) can take long
-cp -a install-elektron-stack.sh ~/bak/install-elektron-stack.sh.$(date +%Y%m%d-%H%M%S)
-curl -fsSLo install-elektron-stack.sh.new https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
-bash -n install-elektron-stack.sh.new && grep -q UPDATE_MODE install-elektron-stack.sh.new \
-  && mv install-elektron-stack.sh.new install-elektron-stack.sh && chmod +x install-elektron-stack.sh
-./install-elektron-stack.sh --update
 docker compose ps
-docker compose exec elektron-faucet-app php -v
+docker compose exec elektron-faucet-app php -v    # 8.3.36 or newer
 ```
 
 Copy the wallet directory of the node only while `elektron-net` is stopped.
 With several servers, update the least important one first and continue
 only when it runs correctly. To roll back, `git reset --hard` each repo to
-the hash in `repo-heads.txt`, restore the configs from
+the hash in `~/bak/pre-update/repo-heads.txt`, restore the configs from
 `backups/update-<timestamp>/` and rerun the script without `--update`.
 
 ### Everything at once (maintenance window)
