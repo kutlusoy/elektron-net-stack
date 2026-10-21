@@ -211,10 +211,11 @@ INSTALL_MEMPOOL MEMPOOL_DOMAIN MEMPOOL_DB_NAME MEMPOOL_DB_USER MEMPOOL_DB_PASS M
 # ============================================================================
 CONFIG_FILE=""
 ASSUME_YES=false
+UPDATE_MODE=false
 
 usage() {
   cat <<'USAGE_EOF'
-Usage: install-elektron-stack.sh [--config FILE] [--yes] [--help]
+Usage: install-elektron-stack.sh [--config FILE] [--yes] [--update] [--help]
 
   --config FILE   Load settings from FILE (KEY=VALUE per line, see
                   elektron-stack.conf.example). Values found there override
@@ -222,6 +223,10 @@ Usage: install-elektron-stack.sh [--config FILE] [--yes] [--help]
                   asked interactively unless --yes is given.
   --yes, -y       Never prompt -- use defaults / config-file values as-is.
                   Use this for unattended/CI runs.
+  --update        Update an existing install without prompts: pull all cloned
+                  repos (git pull --ff-only), pull fresh base images and
+                  rebuild every service without the layer cache. Implies --yes.
+                  Use this for security releases of PHP, Node, Debian etc.
   --help, -h      Show this help text and exit.
 
 If no --config is given, a file named elektron-stack.conf next to this
@@ -234,6 +239,7 @@ while [ $# -gt 0 ]; do
     --config) CONFIG_FILE="${2:-}"; shift 2 ;;
     --config=*) CONFIG_FILE="${1#*=}"; shift ;;
     -y|--yes) ASSUME_YES=true; shift ;;
+    --update) UPDATE_MODE=true; ASSUME_YES=true; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "Unknown option: $1 (see --help)" ;;
   esac
@@ -341,6 +347,13 @@ if [ "$ASSUME_YES" = false ] && [ -t 0 ]; then
   fi
 else
   log "Non-interactive mode (--yes or no terminal) -- using defaults/config file without prompting."
+fi
+
+if [ "$UPDATE_MODE" = true ]; then
+  AUTO_UPDATE_REPOS="true"
+  BUILD_FLAGS="--pull --no-cache"
+else
+  BUILD_FLAGS="--pull"
 fi
 
 # POOL_URL needs a scheme to work as a clickable link in the pool dashboard --
@@ -576,6 +589,20 @@ done
 # ============================================================================
 mkdir -p "$STACK_DIR"
 cd "$STACK_DIR"
+
+if [ "$UPDATE_MODE" = true ]; then
+  BACKUP_DIR="${STACK_DIR}/backups/update-$(date +%Y%m%d-%H%M%S)"
+  log "Backing up configs and secrets to ${BACKUP_DIR} ..."
+  umask 077
+  mkdir -p "$BACKUP_DIR"
+  for f in elektron-stack.conf docker-compose.yml .env caddy/Caddyfile elektron-net/elektron.conf \
+           elektron-net-faucet/.env elektron-net-ppool/.env elektron-net-pool/.env \
+           elektron-net-seeder/.env elektron-net-mempool/.env elektron-net-electrs/electrs.toml; do
+    [ -e "$f" ] && cp -a --parents "$f" "$BACKUP_DIR"/
+  done
+  [ -d data/faucet-config ] && cp -a --parents data/faucet-config "$BACKUP_DIR"/
+  true
+fi
 
 update_if_enabled() {
   # Only ever fast-forwards the CURRENTLY checked-out branch to its own
@@ -1460,7 +1487,8 @@ fi
 # 9. Start the node first
 # ============================================================================
 log "Building and starting elektron-net ..."
-docker compose up -d --build elektron-net
+docker compose build $BUILD_FLAGS elektron-net
+docker compose up -d elektron-net
 
 # `docker compose exec` runs as root by default (the Dockerfile has no
 # USER directive -- only the container's own PID 1 gets dropped to the
@@ -1702,7 +1730,28 @@ if [ "$INSTALL_MEMPOOL" = "true" ]; then
   EXTRA_SERVICES_LABEL="${EXTRA_SERVICES_LABEL}, mempool explorer + electrs"
 fi
 log "Building and starting the rest of the stack (${BASE_SERVICES_LABEL}${EXTRA_SERVICES_LABEL}) ..."
+# The faucet always gets a fresh PHP base image and no layer cache (critical
+# PHP security releases, min. 8.3.36 after CVE-2026-109618/109619); with
+# --update every service is rebuilt that way and the stock images are pulled.
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  docker compose build --pull --no-cache elektron-faucet-app
+fi
+if [ "$UPDATE_MODE" = true ]; then
+  docker compose $COMPOSE_PROFILE_ARGS build $BUILD_FLAGS
+  docker compose $COMPOSE_PROFILE_ARGS pull --ignore-buildable
+fi
 docker compose $COMPOSE_PROFILE_ARGS up -d --build
+
+if [ "$INSTALL_FAUCET" = "true" ]; then
+  FAUCET_PHP_VERSION="$(docker compose exec -T elektron-faucet-app php -r 'echo PHP_VERSION;' 2>/dev/null || true)"
+  if [ -z "$FAUCET_PHP_VERSION" ]; then
+    warn "Could not read the PHP version of elektron-faucet-app; please check it manually."
+  elif [ "$(printf '%s\n8.3.36\n' "$FAUCET_PHP_VERSION" | sort -V | head -n1)" != "8.3.36" ]; then
+    die "Faucet runs PHP ${FAUCET_PHP_VERSION}, which is vulnerable (CVE-2026-109618/109619). Update to 8.3.36 or newer."
+  else
+    log "Faucet PHP version: ${FAUCET_PHP_VERSION}"
+  fi
+fi
 
 # ============================================================================
 # 11b. Clean up the Docker build cache
