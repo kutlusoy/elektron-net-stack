@@ -374,7 +374,7 @@ version first, details below:
 | What changed? | What to do? |
 |---|---|
 | A setting in `elektron-stack.conf` (domain, hCaptcha key, payout parameter, ...) | `nano elektron-stack.conf` -> `./install-elektron-stack.sh --yes` |
-| Everything at once, e.g. security releases of PHP, Node, Debian, Caddy, MariaDB | `./install-elektron-stack.sh --update` (no prompts: `git pull --ff-only` on all repos, fresh base images, rebuild without cache, restart) |
+| Everything at once, e.g. security releases of PHP, Node, Debian, Caddy, MariaDB | fetch the fresh script from `main`, then `./install-elektron-stack.sh --update` (see D below; no prompts: `git pull --ff-only` on all repos, fresh base images, rebuild without cache, restart) |
 | Source code of one of the repos (new version on GitHub) | `git pull` in that folder -> `docker compose up -d --build <service>` |
 | PHP security release (the faucet runs PHP) | `docker compose build --pull --no-cache elektron-faucet-app` -> `docker compose --profile faucet up -d elektron-faucet-app`. `install-elektron-stack.sh` does this on every run and aborts if the faucet's PHP is older than 8.3.36 |
 | Caddy or MariaDB image (upstream update) | `docker compose --profile pool --profile faucet --profile mempool pull caddy elektron-faucet-db elektron-mempool-db` -> `docker compose --profile pool --profile faucet --profile mempool up -d` |
@@ -487,12 +487,19 @@ before a major version jump).
 
 ### D) Full update with `--update` (recommended for security releases)
 
+Always fetch the current script first, an old copy does not know `--update`
+or the newest fixes (the stack directory is usually not a git checkout):
+
 ```bash
 cd /opt/elektron-net-stack
+mkdir -p ~/bak && cp -a install-elektron-stack.sh ~/bak/install-elektron-stack.sh.$(date +%Y%m%d-%H%M%S)
+curl -fsSLo install-elektron-stack.sh.new https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+bash -n install-elektron-stack.sh.new && grep -q UPDATE_MODE install-elektron-stack.sh.new \
+  && mv install-elektron-stack.sh.new install-elektron-stack.sh && chmod +x install-elektron-stack.sh
 ./install-elektron-stack.sh --update
 ```
 
-Runs without prompts (implies `--yes`, uses your `elektron-stack.conf`) and:
+The update runs without prompts (implies `--yes`, uses your `elektron-stack.conf`) and:
 
 1. Backs up configs and secrets to `backups/update-<timestamp>/` (mode 700):
    `elektron-stack.conf`, `docker-compose.yml`, `Caddyfile`, `elektron.conf`,
@@ -527,6 +534,10 @@ cp -a CREDENTIALS.txt external-wallets elektron-stack.conf ~/bak/
 docker compose exec -T elektron-faucet-db sh -c 'mariadb-dump -uroot -p"$MYSQL_ROOT_PASSWORD" --all-databases' > ~/bak/faucet-db.sql
 for d in elektron-net*/; do [ -d "$d/.git" ] && echo "$d $(git -C $d rev-parse HEAD)"; done > ~/bak/repo-heads.txt
 tmux new -s update          # the Rust builds (electrs, mempool) can take long
+cp -a install-elektron-stack.sh ~/bak/install-elektron-stack.sh.$(date +%Y%m%d-%H%M%S)
+curl -fsSLo install-elektron-stack.sh.new https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
+bash -n install-elektron-stack.sh.new && grep -q UPDATE_MODE install-elektron-stack.sh.new \
+  && mv install-elektron-stack.sh.new install-elektron-stack.sh && chmod +x install-elektron-stack.sh
 ./install-elektron-stack.sh --update
 docker compose ps
 docker compose exec elektron-faucet-app php -v
@@ -537,14 +548,6 @@ With several servers, update the least important one first and continue
 only when it runs correctly. To roll back, `git reset --hard` each repo to
 the hash in `repo-heads.txt`, restore the configs from
 `backups/update-<timestamp>/` and rerun the script without `--update`.
-
-If `/opt/elektron-net-stack` is not a git checkout, fetch the current
-script first:
-
-```bash
-curl -fsSLo install-elektron-stack.sh https://raw.githubusercontent.com/kutlusoy/elektron-net-stack/main/install-elektron-stack.sh
-chmod +x install-elektron-stack.sh
-```
 
 ### Everything at once (maintenance window)
 
