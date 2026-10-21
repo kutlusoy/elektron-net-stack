@@ -29,6 +29,9 @@
 #
 # Safe to re-run: existing clones/wallets are detected and skipped instead
 # of being recreated or overwritten.
+#
+# Updating a live install: ./install-elektron-stack.sh --update (see README,
+# "Updating the stack").
 
 set -euo pipefail
 
